@@ -1,0 +1,8 @@
+Dependencies
+------------
+-Scala.  It will probably work with Scala >= 2.8, but it is
+probably a good idea to use the newest version.
+
+Compiling
+---------
+You can compile the code with make.

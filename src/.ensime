@@ -1,0 +1,11 @@
+(
+
+:project-name "graphprog"
+
+:project-package "graphprog"
+
+:sources ("./")
+
+:target "./classes/"
+
+)
