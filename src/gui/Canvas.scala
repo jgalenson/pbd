@@ -1136,6 +1136,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
   // TODO: I currently do exprs by default (see Control.scala).  Should I really do that?
   def addAction(a: Action, shouldDoExpr: Boolean): Boolean = {
     import graphprog.lang.AST.{ BinaryOp, Not, IntArrayAccess, FieldAccess, ArrayLength, ObjectID, ArrayID, Range, In }
+    case class IllegalAction(msg: String) extends RuntimeException
     val curMode = mode.asInstanceOf[Trace]
     val curNewShapes = Set.empty[Shape]
     var shouldDo = shouldDoExpr
@@ -1166,9 +1167,15 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	case e: BinaryOp => addCallable(ConcreteBinaryOp(e), List(e.lhs, e.rhs))
 	case e: Not => addCallable(ConcreteUnaryOp(e), List(e.c))
 	case Assign(l, r) if curMode.isInstanceOf[StmtTrace] =>
+	  val lhsExists = l match {
+	    case ASTVar(n) => variables.contains(n) || curMode.newShapes.exists{ _ match { case v: Var if v.name == n => true case _ => false } }
+	    case _ => true  // TODO: I should actually check this too, although if I don't I just get a different error anyway....
+	  }
+	  if (lhsExists && !typer.canAssign(l, r, makeMemory()))
+	    throw new IllegalAction(printer.stringOfAction(a) + ": lhs and rhs have different types.")
 	  val rShape = addAction(false)(r)
 	  val lShape = l match {
-	    case ASTVar(n) if !variables.contains(n) && !curMode.newShapes.exists{ _ match { case v: Var if v.name == n => true case _ => false } } => (if (shapeToValue(rShape).isInstanceOf[HeapValue]) addPointer(n, curNewShapes) else addPrimVar(n, curNewShapes)).get
+	    case ASTVar(n) if !lhsExists => (if (shapeToValue(rShape).isInstanceOf[HeapValue]) addPointer(n, curNewShapes) else addPrimVar(n, curNewShapes)).get
 	    case _ => addAction(false)(l)
 	  }
 	  doAssignment(curMode.asInstanceOf[StmtTrace], lShape, rShape)
@@ -1191,7 +1198,11 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     } catch {
       case e =>
 	e.printStackTrace()
-	SynthesisGUI.showError(gui, "Illegal action " + printer.stringOfAction(a))
+	val msg = e match {
+	  case IllegalAction(msg) => msg
+	  case _ => "Illegal action " + printer.stringOfAction(a)
+	}
+	SynthesisGUI.showError(gui, msg)
 	false
     }
   }

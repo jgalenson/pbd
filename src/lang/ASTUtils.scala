@@ -189,6 +189,9 @@ protected[graphprog] class Typer(functions: Map[String, Program], objectTypes: M
   protected[graphprog] def canAssign(lhs: Type, rhs: Expr): Boolean = {
     canAssignTypes(lhs, typeOfExprNoMemory(rhs))
   }
+  protected[graphprog] def canAssign(lhs: Expr, rhs: Expr, memory: Memory): Boolean = {
+    canAssignTypes(typeOfExpr(lhs, memory), typeOfExpr(rhs, memory))
+  }
   private def canAssignTypes(l: Type, r: Type): Boolean = (l, r) match {
     case (IntType, IntType) => true
     case (BooleanType, BooleanType) => true
