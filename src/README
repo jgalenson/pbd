@@ -6,3 +6,9 @@ probably a good idea to use the newest version.
 Compiling
 ---------
 You can compile the code with make.
+
+Running
+-------
+You can run the generated code by invoking certain output class files.
+
+You can use the "--seed <n>" option to fix a random seed.
