@@ -180,6 +180,12 @@ protected[test] object TestCommon {
   }
 
   def parseCommandLine(args: Array[String]) {
+    def showUsage() {
+      println("<prog> [--seed N] [--help]")
+      println("  --seed N   Sets the random seed used to generate test cases")
+      println("  --help     Displays this help text")
+    }
+
     import scala.util.Random.{ setSeed, nextLong }
     var seedSet = false
     def setRandomSeed(seed: Long) {
@@ -189,11 +195,16 @@ protected[test] object TestCommon {
     }
     var i = 0
     while (i < args.length) {
-      if (args(i) == "--seed" && i + 1 < args.length) {
-	setRandomSeed(args(i+1).toLong)
-	i += 2
+      if (args(i) == "--help") {
+        showUsage()
+        System.exit(1)
+      } else if (args(i) == "--seed" && i + 1 < args.length) {
+	    setRandomSeed(args(i+1).toLong)
+	    i += 2
       } else
-	i += 1
+        showUsage()
+        System.exit(1)
+	    i += 1
     }
     if (!seedSet)
       setRandomSeed(nextLong())
