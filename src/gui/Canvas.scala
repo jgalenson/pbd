@@ -549,6 +549,11 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     // Layout objects nicely.
     if (layoutObjs)
       useUserObjectLayout(objects.values.toSet, g)
+    // Place nulls nicely.
+    nulls foreach { n => {
+      val (newX, newY) = findLocation(OBJECT_SPACING, OBJECT_SPACING, NULL_WIDTH, NULL_HEIGHT, true)
+      moveShape(n, newX - n.x, newY - n.y, getChildren, getArrowsTo, getArrowsFrom)
+    } }
   }
   def removeShape(shape: Shape): Unit = shape match {
     case Prim(name, _, _, _, _, _) => variables.remove(name)
