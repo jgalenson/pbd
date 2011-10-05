@@ -33,6 +33,7 @@ private class Menu(private val synthesisGUI: SynthesisGUI, private val controls:
   private val fixProgramFromHole = new JMenuItem("Fix program")
   private val fixProgram = new JMenu("Fix program")
   private val insertConditionalFromHole = new JMenuItem("Insert conditional")
+  private val steper = new JMenuItem("Step")
   private val continuer = new JMenuItem("Continue")
   private val insertConditional = new JMenuItem("Insert conditional")
   private val endConditionalWhenFixing = new JMenuItem("End conditional")
@@ -123,7 +124,9 @@ private class Menu(private val synthesisGUI: SynthesisGUI, private val controls:
   def addFixProgramMenu() {
     fixProgram.setMnemonic(KeyEvent.VK_F)
 
-    setupControl(continuer, fixProgram, _ => synthesisGUI.continueFixing(), KeyEvent.VK_C)
+    setupControl(steper, fixProgram, _ => synthesisGUI.step(), KeyEvent.VK_S)
+
+    setupControl(continuer, fixProgram, _ => synthesisGUI.continue(), KeyEvent.VK_C)
 
     setupControl(insertConditional, fixProgram, _ => synthesisGUI.insertConditionalAtPoint(), KeyEvent.VK_I)
 
@@ -143,7 +146,8 @@ private class Menu(private val synthesisGUI: SynthesisGUI, private val controls:
   }
   def showFixProgram(canContinue: Boolean, amInConditional: Boolean) {
     fixProgram.setEnabled(true)
-    continuer.setEnabled(canContinue)
+    steper.setEnabled(canContinue)
+    continuer.setEnabled(canContinue && !amInConditional)  // We need the user to mark the end of the conditional, so don't let them continue.
     insertConditionalFromHole.setEnabled(!amInConditional)
     insertConditional.setEnabled(!amInConditional)
     endConditionalWhenFixing.setEnabled(amInConditional)
@@ -215,6 +219,7 @@ private class Toolbar(private val synthesisGUI: SynthesisGUI, private val contro
   import Controls._
 
   private val ender = new JButton("End trace")
+  private val stepButton = new JButton("Step")
   private val continueButton = new JButton("Continue")
   private val insertConditionalButton = new JButton("Insert conditional")
   private val endConditionalButton = new JButton("End conditional")
@@ -253,7 +258,11 @@ private class Toolbar(private val synthesisGUI: SynthesisGUI, private val contro
   private def makeFixProgramToolbar(): Box = {
     val box = Box.createHorizontalBox()
 
-    setupControl(continueButton, box, _ => synthesisGUI.continueFixing())
+    setupControl(stepButton, box, _ => synthesisGUI.step())
+
+    box.add(Box.createHorizontalStrut(10))
+
+    setupControl(continueButton, box, _ => synthesisGUI.continue())
 
     box.add(Box.createHorizontalStrut(10))
 
@@ -272,7 +281,8 @@ private class Toolbar(private val synthesisGUI: SynthesisGUI, private val contro
   
   def showTraceToolbar() = showToolbar(traceBox)
   def showFixProgramToolbar(canContinue: Boolean, amInConditional: Boolean) {
-    continueButton.setEnabled(canContinue)
+    stepButton.setEnabled(canContinue)
+    continueButton.setEnabled(canContinue && !amInConditional)  // We need the user to mark the end of the conditional, so don't let them continue.
     insertConditionalButton.setEnabled(!amInConditional)
     endConditionalButton.setEnabled(amInConditional)
     showToolbar(fixProgramBox)

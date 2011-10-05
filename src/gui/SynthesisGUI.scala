@@ -6,6 +6,7 @@ import javax.swing.{ JFrame, UIManager, WindowConstants, JLabel, JSplitPane, JSc
 import graphprog.gui._
 import SynthesisGUI._
 import graphprog.Controller
+import graphprog.Controller._
 import graphprog.lang.AST.{ Program, Type, Primitive, Value }
 import graphprog.Controller.ObjectLayout
 import scala.collection.{ Map => TMap }
@@ -151,18 +152,20 @@ class SynthesisGUI private (private val controller: Controller, private val help
       canvas.showMemoryDiff(diffMemory, valueOpt)
     case None => insertConditionalAtPoint()
   }
-  protected[gui] def continueFixing() {
-    canvas.hideMemoryDiff()
-    controls.hideFixingControls()
-    controller.setCode(None)
+  protected[gui] def step() {
+    hideFixingGui()
+    controller.setFixInfo(Step)
+  }
+  protected[gui] def continue() {
+    hideFixingGui()
+    controller.setFixInfo(Continue)
   }
   protected[gui] def insertConditionalAtPoint() {
     if (canvas.isQueryMode()) {
       canvas.leaveQueryMode()
       controller.setActions(None)
     }
-    canvas.hideMemoryDiff()
-    controls.hideFixingControls()
+    hideFixingGui()
     showMessage(this, "There must be a conditional at this point.  Please demonstrate the guard and then the body, marking where the conditional ends.", "Insert a conditional")
     invokeOffSwingThread(controller.insertConditionalAtPoint(), (result: (Memory, List[Action] => Option[List[Stmt]])) => {
       controls.startTraceMode(false, false)
@@ -173,13 +176,16 @@ class SynthesisGUI private (private val controller: Controller, private val help
   // Called when we've found the join point for a conditional.
   protected[gui] def finishFixing(code: List[Stmt]) {
     controls.finishStmtTraceMode()
-    controller.setCode(Some(code))
+    controller.setFixInfo(Code(code))
   }
   // Called when the user marks that a conditional has ended (but we don't necessarily know the join point yet).
   protected[gui] def endConditional() {
+    hideFixingGui()
+    controller.setFixInfo(EndConditional)
+  }
+  private def hideFixingGui() {
     canvas.hideMemoryDiff()
     controls.hideFixingControls()
-    controller.setCode(Some(Nil))
   }
 
   def setCode(stmts: List[Stmt], curStmt: Option[Stmt], replacementStmts: Option[Iterable[Stmt]] = None) = code.setCode(stmts, curStmt, replacementStmts)

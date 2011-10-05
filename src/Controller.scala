@@ -16,7 +16,7 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
   protected val actionsVar = new SingleUseSyncVar[Option[List[Action]]]
   protected val stmtTraceVar = new SingleUseSyncVar[Option[(List[Action], TMap[Iterate, Loop], Memory)]]
   protected val exprTraceVar = new SingleUseSyncVar[Option[(Expr, Memory)]]
-  protected val codeVar = new SingleUseSyncVar[Option[List[Stmt]]]
+  protected val fixInfo = new SingleUseSyncVar[FixInfo]
 
   protected val synthesizer = synthesisCreator(this)
   protected val gui = makeGUI(this, helperFunctions, objectTypes, objectComparators, fieldLayouts, objectLayouts)  // We need to define this last since its creation triggers a paint, which calls getMemory, which needs memChan.
@@ -50,13 +50,13 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
     } }
   }
 
-  def doFixStep(diffInfo: Option[(Memory, Stmt, Value)], amInConditional: Boolean = false): Option[List[Stmt]] = {
+  def doFixStep(diffInfo: Option[(Memory, Stmt, Value)], amInConditional: Boolean = false): FixInfo = {
     val newDiffInfo = diffInfo map { case (mem, stmt, value) => (mem, (stmt, value) match {
       case (_: Expr, p: Primitive) => Some(p)  // Let's only show the value if the current statement is an expression that returns a primitive.  We don't want, e.g., assign results or objects.
       case _ => None
     }) }
     invokeLater{ gui.doFixStep(newDiffInfo, amInConditional) }
-    getCode()
+    getFixInfo()
   }
   // Returns a function that, given the actions executed since the conditional ended, finds the legal join points.
   def insertConditionalAtPoint(): (Memory, List[Action] => Option[List[Stmt]]) = {
@@ -109,19 +109,21 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
       val unseenBody = UnseenStmt()
       updateDisplay(curMem, List(if (branch) If(predStmt, prevStmts :+ unseenBody, Nil, oldBody) else If(predStmt, oldBody, Nil, prevStmts :+ unseenBody)), Some(unseenBody), false)
       val (v, m) = holeExecutor.execute(curMem, curStmt)
-      val ended = doFixStep(Some((m, curStmt, v)), true).isDefined  // TODO/FIXME: Nil vs None return a hack (I set Nil here in SynthesisGUI).
-      if (ended)
-	return getCode(Some(curStmt))
-      (prevStmts :+ curStmt, m)
+      // FIXME: This (and code that gets legal joins in synthesis) fails when a stmt is a conditional with a hole for the condition.  In Synthesis we can't execute it so we think it's an illegal join while here we don't show a diff.  Example random seed (currently): 6987549502241748574.
+      doFixStep(Some((m, curStmt, v)), true) match {
+	case EndConditional => return getCode(Some(curStmt))
+	case Step => (prevStmts :+ curStmt, m)
+	case _ => throw new RuntimeException
+      }
     } }
     return getCode(None)
   }
-  def getCode(): Option[List[Stmt]] = codeVar.get
+  def getFixInfo(): FixInfo = fixInfo.get
 
   def setActions(actions: Option[List[Action]]) = actionsVar set actions
   def setStmtTrace(trace: Option[(List[Action], TMap[Iterate, Loop], Memory)]) = stmtTraceVar set trace
   def setExprTrace(expr: Option[(Expr, Memory)]) = exprTraceVar set expr
-  def setCode(code: Option[List[Stmt]]) = codeVar set code
+  def setFixInfo(info: FixInfo) = fixInfo set info
 
   // TODO/FIXME: I should do pruning here after genProgramAndFillHoles but before executeWithHelpFromUser.  That might reduce the num of questions I ask for later iterations.  But for that, I need to have access to the entire program up to this point.  Canvas' Tracer has the current unseen part, but I don't have everything before it.  Once I modify executeWithHelpFromUser to keep the whole program, I can have that.  Note that I can also add pruning to places inside executeWithHelpFromUser, perhaps after I get an unseen statement.
   def synthesizeLoop(initialMemory: Memory, firstIteration: Iterate, loops: TMap[Iterate, Loop], curMemory: Memory): (Memory, Iterate, Loop) = {
@@ -180,5 +182,12 @@ object Controller {
       controller.cleanup()
     }
   }
+
+  // The possible results of user actions when we're in fixing/debug walkthrough mode.
+  protected[graphprog] sealed abstract class FixInfo
+  protected[graphprog] case class Code(code: List[Stmt]) extends FixInfo
+  protected[graphprog] case object Step extends FixInfo
+  protected[graphprog] case object Continue extends FixInfo
+  protected[graphprog] case object EndConditional extends FixInfo
 
 }

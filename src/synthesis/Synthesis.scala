@@ -10,6 +10,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
   import graphprog.lang.{ Executor, Printer, Typer, IteratorExecutor }
   import graphprog.lang.ASTUtils._
   import graphprog.lang.Executor.simpleHoleHandler
+  import graphprog.Controller._
   import graphprog.Utils._
   import scala.collection.mutable.{ Map, Set => MSet, ListBuffer }
   import scala.annotation.tailrec
@@ -632,10 +633,21 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
   // TODO: Remove asInstanceOfs
   protected[graphprog] def executeWithHelpFromUser(memory: Memory, origStmts: List[Stmt], pruneAfterUnseen: Boolean, amFixing: Boolean, otherBranch: Option[(Stmt, Stmt, List[Stmt])] = None): (List[Action], List[Stmt], Memory) = {
     def updateDisplay(memory: Memory, curStmt: Option[Stmt], newStmts: IMap[Stmt, Stmt], newBlocks: IMap[Stmt, List[Stmt]], layoutObjs: Boolean = true) = controller.updateDisplay(memory, getNewStmts(origStmts, newStmts, newBlocks), curStmt, layoutObjs)
+    var continue = false  // Whether the user has selected to continue.
     def doFixStep(memory: Memory, curStmt: Option[Stmt], newStmts: IMap[Stmt, Stmt], newBlocks: IMap[Stmt, List[Stmt]], diffInfo: Option[(Memory, Stmt, Value)]) {
       assert(amFixing)
-      updateDisplay(memory, curStmt, newStmts, newBlocks, false)
-      controller.doFixStep(diffInfo) foreach { code => throw new FixedCode(curStmt, code) }
+      (diffInfo, continue) match {
+	case (Some(_), true) => // The user pressed continue and there's only one possibility, so execute it.
+	case _ =>
+	  continue = false
+	  updateDisplay(memory, curStmt, newStmts, newBlocks, false)
+	  controller.doFixStep(diffInfo) match {
+	    case Step => // Do nothing, which accepts the current choice.
+	    case Continue => continue = true
+	    case Code(code) => throw new FixedCode(curStmt, code)
+	    case EndConditional => throw new RuntimeException
+	  }
+      }
     }
     var pruneBeforeNextDisambiguation = false
     def executeWithHelpFromUserHelper(memory: Memory, stmts: List[Stmt], newStmts: IMap[Stmt, Stmt], newBlocks: IMap[Stmt, List[Stmt]], indent: String, printFn: String => Unit = print): ((Memory, List[Action], IMap[Stmt, Stmt], IMap[Stmt, List[Stmt]]), Boolean) = {
@@ -792,7 +804,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 		      val (result, newMem) = defaultExecutor.execute(memory, actions.head)
 		      println(indent + shortPrinter.stringOfValue(result))
 		      (actions, result, newMem)  // We return actions for the action and not actions.head because actions.head could be wrong (e.g. could be x < y when we want a < b, and this would give us wrong values).
-		    case None if amFixing => throw new FixedCode(Some(actualCurStmt), controller.getCode().get)
+		    case None if amFixing => throw new FixedCode(Some(actualCurStmt), controller.getFixInfo().asInstanceOf[Code].code)
 		    case None if !amFixing => throw new FixCode("you asked to change it", None)
 		  }
 		}
