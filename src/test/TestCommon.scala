@@ -199,12 +199,12 @@ protected[test] object TestCommon {
         showUsage()
         System.exit(1)
       } else if (args(i) == "--seed" && i + 1 < args.length) {
-	    setRandomSeed(args(i+1).toLong)
-	    i += 2
-      } else
+	setRandomSeed(args(i+1).toLong)
+	i += 2
+      } else {
         showUsage()
         System.exit(1)
-	    i += 1
+      }
     }
     if (!seedSet)
       setRandomSeed(nextLong())

@@ -170,10 +170,12 @@ class SynthesisGUI private (private val controller: Controller, private val help
       repaint()
     })
   }
+  // Called when we've found the join point for a conditional.
   protected[gui] def finishFixing(code: List[Stmt]) {
     controls.finishStmtTraceMode()
     controller.setCode(Some(code))
   }
+  // Called when the user marks that a conditional has ended (but we don't necessarily know the join point yet).
   protected[gui] def endConditional() {
     canvas.hideMemoryDiff()
     controls.hideFixingControls()
