@@ -114,13 +114,13 @@ class SynthesisGUI private (private val controller: Controller, private val help
     setActions(None)
   }
 
-  def getStmtTrace(memory: Memory, canFix: Boolean) {
-    controls.startTraceMode(false, canFix && depth == 0)
+  def getStmtTrace(memory: Memory, canFix: Boolean, isConditional: Boolean) {
+    controls.startTraceMode(false, canFix && depth == 0, isConditional)
     canvas.startStmtTraceMode(memory)
     repaint()
   }
   def getExprTrace(canFix: Boolean) {
-    controls.startTraceMode(true, canFix && depth == 0)
+    controls.startTraceMode(true, canFix && depth == 0, false)
     canvas.startExprTraceMode()
     repaint()
   }
@@ -171,7 +171,7 @@ class SynthesisGUI private (private val controller: Controller, private val help
     hideFixingGui()
     showMessage(this, "There must be a conditional at this point.  Please demonstrate the guard and then the body, marking where the conditional ends.", "Insert a conditional")
     invokeOffSwingThread(controller.insertConditionalAtPoint(), (result: (Memory, List[Action] => Option[List[Stmt]])) => {
-      controls.startTraceMode(false, false)
+      controls.startTraceMode(false, false, false)
       canvas.startJoinGuessMode(result._1, result._2)
       repaint()
     })

@@ -35,8 +35,8 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
     actionsVar.get
   }
 
-  def getStmtTrace(memory: Memory, canFix: Boolean): Option[(List[Action], List[Stmt], Memory)] = {
-    invokeLater{ gui.getStmtTrace(memory, canFix) }
+  def getStmtTrace(memory: Memory, canFix: Boolean, isConditional: Boolean = false): Option[(List[Action], List[Stmt], Memory)] = {
+    invokeLater{ gui.getStmtTrace(memory, canFix, isConditional) }
     stmtTraceVar.get map { case (actions, loops, newMemory) => {
 	// TODO/FIXME: Does this really guarantee that I wake up the last waiter rather than a random one?  If I end up changing this, probably integrate SynthesisGUI.depth into that.
 	val stmts = synthesizer.genProgramAndFillHoles(memory, actions, false, loops)
@@ -73,7 +73,7 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
     val branch = (new Executor(helperFunctions, new Printer(Map[String, Value => String](), true))).evaluateBoolean(initMem, predAction)
     val unseenBody = UnseenStmt()
     invokeLater{ gui.setCode(List(if (branch) If(predStmt, List(unseenBody), Nil, List(UnseenStmt())) else If(predStmt, List(UnseenStmt()), Nil, List(unseenBody))), Some(unseenBody)) }
-    val (newBranchActions, newBranch, joinMem) = getStmtTrace(predMem, false).get
+    val (newBranchActions, newBranch, joinMem) = getStmtTrace(predMem, false, true).get
     invokeLater{ gui.setCode(List(if (branch) If(predStmt, newBranch, Nil, List(UnseenStmt())) else If(predStmt, List(UnseenStmt()), Nil, newBranch), unseenBody), Some(unseenBody)) }
     (joinMem, (actionsAfterJoin: List[Action]) => {
       val (lastExecutedStmt, legalJoins) = synthesizer.findLegalJoinPoints(code, initStmt, initMem, joinMem, actionsAfterJoin)

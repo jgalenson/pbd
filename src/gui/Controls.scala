@@ -170,12 +170,16 @@ private class Menu(private val synthesisGUI: SynthesisGUI, private val controls:
     case Loop(_) => endIteration
   }
   private def newCurBlock(block: Block) = block match {
-    case Trace(isExpr, _) =>
+    case Trace(isExpr, _, isConditional) =>
       starters.foreach{ _.setEnabled(!isExpr) }
       enders.foreach{ _.setEnabled(false) }
       finishTrace.setEnabled(!isExpr)
       List(addPrim, addPointer).foreach{ _.setEnabled(!isExpr) }
       controls.showTraceControls()
+      if (isConditional)
+	finishTrace.setLabel("Finish conditional")
+      else
+	finishTrace.setLabel("Finish Trace")
     case Unordered => startUnordered.setEnabled(false)
     case Snapshot => starters.foreach{ _.setEnabled(false) }
     case b: BlockWithCondition =>
@@ -301,9 +305,13 @@ private class Toolbar(private val synthesisGUI: SynthesisGUI, private val contro
   def nextBlock(block: Option[Block]) = block match {
     case None => ender.setEnabled(false)
     case Some(b) =>
-      ender.setEnabled(true)
       b match {
-	case _: Trace => ender.setLabel("Finish trace")
+	case Trace(true, _, _) => ender.setEnabled(false)
+	case _ => ender.setEnabled(true)
+      }
+      b match {
+	case Trace(_, _, false) => ender.setLabel("Finish trace")
+	case Trace(_, _, true) => ender.setLabel("End conditional")
 	case Unordered => ender.setLabel("End unordered")
 	case Snapshot => ender.setLabel("End snapshot")
 	case Conditional(_) => ender.setLabel("End conditional")
@@ -324,19 +332,19 @@ protected[gui] class Controls(private val synthesisGUI: SynthesisGUI, private va
   private val curBlocks = new scala.collection.mutable.Stack[Block]
   private val undoManager = new UndoManager
 
-  def startTraceMode(isExpr: Boolean, allowFixing: Boolean) {
-    startBlock(Trace(isExpr, allowFixing))
+  def startTraceMode(isExpr: Boolean, allowFixing: Boolean, isConditional: Boolean) {
+    startBlock(Trace(isExpr, allowFixing, isConditional))
   }
   def finishExprTraceMode() = {
-    assert(curBlocks.headOption match { case Some(Trace(true, _)) => true case _ => false })
+    assert(curBlocks.headOption match { case Some(Trace(true, _, _)) => true case _ => false })
     endBlock()
   }
   def finishStmtTraceMode() = {
-    assert(curBlocks.headOption match { case Some(Trace(false, _)) => true case _ => false })
+    assert(curBlocks.headOption match { case Some(Trace(false, _, _)) => true case _ => false })
     endBlock(true)
   }
   def showTraceControls() {
-    menu.enableDisableFixProgramStarters(curBlocks.collect{ case Trace(_, allowFixing) => allowFixing }.head)
+    menu.enableDisableFixProgramStarters(curBlocks.collect{ case Trace(_, allowFixing, _) => allowFixing }.head)
     menu.showTraceMenu()
     toolbar.showTraceToolbar()
   }
@@ -366,7 +374,7 @@ protected[gui] class Controls(private val synthesisGUI: SynthesisGUI, private va
   }
 
   def setNoTrace() {
-    synthesisGUI.setNoTrace(curBlocks.collect{ case Trace(isExpr, true) => isExpr }.head)
+    synthesisGUI.setNoTrace(curBlocks.collect{ case Trace(isExpr, true, _) => isExpr }.head)
   }
 
   def addEdit(e: UndoableEdit) {
@@ -431,7 +439,7 @@ protected[gui] class Controls(private val synthesisGUI: SynthesisGUI, private va
     }
     val curBlock = removeBlock()
     curBlock match {
-      case Trace(isExpr, _) => 
+      case Trace(isExpr, _, _) => 
 	if (!isExpr && !guiAlreadyEnded)
 	  synthesisGUI.finishStmtTrace()  // ExprTrace is ended by Canvas, not Controls
       case Loop(true) => synthesisGUI.finishIteration()
@@ -441,7 +449,7 @@ protected[gui] class Controls(private val synthesisGUI: SynthesisGUI, private va
   protected[controls] def addActionIfValid(str: String, shouldDoExpr: Boolean = true) {
     def isLegalStart(newBlock: Block) = curBlocks.headOption match {
       case Some(curBlock) => curBlock match {
-	case Trace(isExpr, _) => !isExpr
+	case Trace(isExpr, _, _) => !isExpr
 	case Unordered => newBlock != Unordered
 	case Snapshot => false
 	case b: BlockWithCondition => b.seenCondition
@@ -545,7 +553,7 @@ private object Controls {
 		      UnaryOp("!", b => Not(b), BooleanType))
 
   abstract class Block
-  case class Trace(isExpr: Boolean, allowFixing: Boolean) extends Block
+  case class Trace(isExpr: Boolean, allowFixing: Boolean, isConditional: Boolean) extends Block
   case object Unordered extends Block {
     override def toString: String = "unordered"
   }
