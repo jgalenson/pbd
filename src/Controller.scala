@@ -26,8 +26,9 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
 
   def updateDisplay(memory: Memory, stmts: List[Stmt], curStmt: Option[Stmt], layoutObjs: Boolean = true) = {
     lastState = Some((memory, stmts, curStmt))
-    invokeAndWait{ gui.updateDisplay(memory.clone, stmts, curStmt, layoutObjs) }  // Important: we clone the memory since the GUI operates on its data directly.
+    invokeAndWait{ gui.updateDisplay(Some(memory.clone), stmts, curStmt, layoutObjs) }  // Important: we clone the memory since the GUI operates on its data directly.
   }
+  def clearDisplay(stmts: List[Stmt]) = invokeAndWait{ gui.updateDisplay(None, stmts, None, false) }
 
   def getActions(possibilities: List[Action], amFixing: Boolean): Option[List[Action]] = {
     invokeAndWait{ gui.getActions(possibilities, amFixing) }

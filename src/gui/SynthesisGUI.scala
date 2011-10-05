@@ -86,8 +86,11 @@ class SynthesisGUI private (private val controller: Controller, private val help
 
   // Communication logic
 
-  def updateDisplay(memory: Memory, stmts: List[Stmt], curStmt: Option[Stmt], layoutObjs: Boolean) {
-    canvas.updateDisplayWithMemory(memory, layoutObjs)
+  def updateDisplay(memoryOpt: Option[Memory], stmts: List[Stmt], curStmt: Option[Stmt], layoutObjs: Boolean) {
+    memoryOpt match {
+      case Some(memory) => canvas.updateDisplayWithMemory(memory, layoutObjs)
+      case None => canvas.clear()
+    }
     setCode(stmts, curStmt)
     repaint()
   }

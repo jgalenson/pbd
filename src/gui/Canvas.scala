@@ -1399,6 +1399,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     arrLens.clear
     pointees.clear
     arrowSources.clear
+    nulls.clear
     held = NoHeld
     tooltip = None
     hoveringCall = None

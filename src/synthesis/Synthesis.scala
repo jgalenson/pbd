@@ -814,6 +814,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 		val newStmt = possibilitiesToStmt(curHole, newPossibilities filter { p => yieldEquivalentResults(memory, p, curResult, newMemory) })
 		numDisambiguations += 1
 		updateHoleMaps(newStmt, actions, true)
+		continue = false
 		((newMemory, trace :+ curResult, newStmts + (curStmt -> newStmt), newBlocks), false)
 	      }
 	    case unseen: Unseen =>
@@ -1155,20 +1156,20 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     println("Initial statements:\n" + shortPrinter.stringOfStmts(stmts))
     allInputs += inputs
     val (code, isFinished) = synthesizeRec(stmts)
-    controller.updateDisplay(new Memory, code, None)
+    controller.clearDisplay(code)
     val numTraces = allInputs.size
     val numQueries = numDisambiguations + numUnseensFilled
     println("Asked " + numQueries + " " + pluralize("query", "queries", numQueries) + " (" + numDisambiguations + " disambiguation and " + numUnseensFilled + " unseen)" + " in " + numTraces + " " + pluralize("trace", "traces", numTraces) + " with " + numCodeFixes + " " + pluralize("fix", "fixes", numCodeFixes) + ".")
     // TODO: Handle this case better.  Should I display program with holes or the guessed one?
     val finalProgram = Program(name, typ, inputTypes, functions, objectTypes, code)
     if (isFinished) {
-      controller.updateDisplay(new Memory, code, None)
+      controller.clearDisplay(code)
       controller.displayMessage("Here is the complete program.")
       finalProgram
     } else {
       val guessedStmts = getNewStmts(code, _ match { case h: PossibilitiesHole => guessHole(h) }, IMap.empty)
       println("Guessing:\n" + longPrinter.stringOfStmts(guessedStmts))
-      controller.updateDisplay(new Memory, guessedStmts, None)
+      controller.clearDisplay(guessedStmts)
       controller.displayMessage("Here is the program.")
       throw new SolverError("Unable to find a random input that will help us on the following program.\n" + getHoleInfo(code) + "\n" + longPrinter.stringOfProgram(finalProgram)) with FastException
     }
