@@ -95,6 +95,9 @@ protected[graphprog] class Printer(helpers: PartialFunction[String, Value => Str
       val s = stringOfPath(condition, thenBranch, "if", indent) + (if (!elseIfPaths.isEmpty) "\n" else "") + iterableToString(elseIfPaths, "\n", { p: (Expr, List[Stmt]) => stringOfPath(p._1, p._2, "else if", indent) }) + (if (elseBranch.size > 0) "\n" + indent + "else" + stringOfBody(elseBranch, indent) else "")
       s.replaceAll("}\nelse", "} else")
     case Loop(condition, body) => "loop (" + stringOfStmt(condition, "") + ")" + stringOfBody(body, indent)
+    case UnknownJoinIf(i, u) => 
+      val s = stringOfStmt(i, indent) + (if (u.nonEmpty) "\n" + indent + "unknown" + stringOfBody(u, indent) else "")
+      s.replaceAll("}\nunknown", "} unknown")
   })
   protected[graphprog] def stringOfStmts(stmts: Iterable[Stmt], indent: String = ""): String = iterableToString(stmts, "\n", { s: Stmt => stringOfStmt(s, indent) })
   protected[graphprog] def stringOfInputs(inputs: List[(String, Value)], sep: String) = iterableToString(inputs, sep, { t: (String, Value) => "input " + t._1 + " -> " + stringOfValue(t._2) })
@@ -357,6 +360,19 @@ object ASTUtils {
     areEqual(v1, v2, true, true, seenObjectIDs) && memoriesAreEqual(m1, m2, seenObjectIDs)
   }
 
+  protected[graphprog] def getParents(code: List[Stmt]): Map[Stmt, Option[Stmt]] = {
+    def getParentsForStmts(code: List[Stmt], parent: Option[Stmt], acc: Map[Stmt, Option[Stmt]]): Map[Stmt, Option[Stmt]] = {
+      def getParentsForStmt(cur: Stmt, parent: Option[Stmt], acc: Map[Stmt, Option[Stmt]]): Map[Stmt, Option[Stmt]] = (cur match {
+	case If(c, t, ei, e) => getParentsForStmts(e, Some(cur), getParentsForStmts(t, Some(cur), getParentsForStmt(c, Some(cur), acc)))  // Doesn't work with else ifs
+	case Loop(c, b) => getParentsForStmts(b, Some(cur), getParentsForStmt(c, Some(cur), acc))
+	case UnorderedStmts(s) => getParentsForStmts(s, Some(cur), acc)
+	case _ => acc
+      }) + (cur -> parent)
+      code.foldLeft(acc){ (acc, cur) => getParentsForStmt(cur, parent, acc) }
+    }
+    getParentsForStmts(code, None, Map.empty) 
+  }
+
   protected[graphprog] def diffMemories(memory: Memory, newMemory: Memory): (Map[String, Value], Map[(Int, String), Value], Map[(Int, Int), Int]) = {
     // TODO-bug: I should really track all assigns here.  If we execute an assignment that assigns to the current value, I don't currently catch that.
     val oldKeySet = memory.keys.toSet
@@ -420,6 +436,17 @@ object ASTUtils {
       assert(replaced)
       newCode
     case None => code :+ blockMaker(Nil)
+  }
+
+  // If the parameter is a condition, gets the statement that owns it.
+  // The call to getParents is inefficient, but who cares.
+  protected[graphprog] def getOwningStmt(code: List[Stmt], s: Stmt): Stmt = getParents(code)(s) match {
+    case Some(p) => p match {
+      case If(c, _, _, _) if c eq s => p
+      case Loop(c, _) if c eq s => p
+      case _ => s
+    }
+    case None => s
   }
 
 }

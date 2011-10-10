@@ -51,7 +51,7 @@ protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, priva
 
   // TODO: This code is ugly.  Clean it up and combine similar parts.
   def showCode(replacementStmts: Option[Iterable[Stmt]]) = {
-    import graphprog.lang.AST.{ Conditional, Iterate, If, Loop, UnorderedStmts, Action, Expr, Unseen, PossibilitiesHole }
+    import graphprog.lang.AST.{ Conditional, Iterate, If, Loop, UnorderedStmts, Action, Expr, Unseen, PossibilitiesHole, UnknownJoinIf }
     import graphprog.lang.Printer.prettyStringOfStmt
     replacedStmts = (curStmt, replacementStmts) match {
       case (Some(curStmt), Some(replacementStmts)) =>
@@ -61,10 +61,11 @@ protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, priva
 	  case Iterate(is) => List(Iterate(is map { i => (i._1, replaceActions(i._2)) }))
 	  case _ => List(a)
 	}
-	def replaceStmt(s: Stmt) = s match {
+	def replaceStmt(s: Stmt): List[Stmt] = s match {
 	  case a: Action => replaceAction(a)
 	  case s if s eq curStmt => replacementStmts.toList
 	  case If(c, b, ei, e) => List(If(c, replaceStmts(b), ei map { p => (p._1, replaceStmts(p._2)) }, replaceStmts(e)))
+	  case UnknownJoinIf(i, u) => List(UnknownJoinIf(singleton(replaceStmt(i)).asInstanceOf[If], replaceStmts(u)))
 	  case Loop(c, b) => List(Loop(c, replaceStmts(b)))
 	  case _ => List(s)
 	}
@@ -114,6 +115,7 @@ protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, priva
 	    case Conditional(c, b) => pathHelper("cond", s, Some(c), b)
 	    case Iterate(is) => (makeElem(s, false, indent + "iterate {") :: is.flatMap{ i => pathHelper("iteration", s, Some(i._1), i._2, indent + "  ") }) :+ makeElem(s, false, indent + "}")
 	    case If(c, b, ei, e) => pathHelper("if", s, Some(c), b) ++ ei.flatMap{ p => pathHelper("else if", s, Some(p._1), p._2) } ++ (if (e.nonEmpty) pathHelper("else", s, None, e) else Nil)
+	    case UnknownJoinIf(i, u) => addStmt(i, parent, indent, isCurrent) ++ (if (u.nonEmpty) pathHelper("unknown", s, None, u) else Nil)
 	    case Loop(c, b) => pathHelper("loop", s, Some(c), b)
 	    case UnorderedStmts(stmts) => pathHelper("unordered", s, None, stmts)
 	    case s => List(makeElem(s, true, indent + prettyStringOfStmt(s, printer), if (s.isInstanceOf[PossibilitiesHole]) Some(printer.stringOfStmt(s)) else None))

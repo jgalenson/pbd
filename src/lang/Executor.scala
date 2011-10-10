@@ -320,10 +320,7 @@ class IteratorExecutor private (private var iterator: Stack[Stmt], private val f
 
   def getNextOpt: Option[Stmt] = if (hasNext) Some(iterator.top) else None
 
-  def executeNext(memory: Memory): Value = {
-    println("executeNext " + printer.stringOfStmt(iterator.top) + " with memory " + printer.stringOfMemory(memory))
-    exec(memory, iterator.pop)
-  }
+  def executeNext(memory: Memory): Value = exec(memory, iterator.pop)
 
   def skipNext() = iterator.pop
 

@@ -29,6 +29,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
   private val typer = new Typer(functions, objectTypes)
   
   private val allInputs = ListBuffer.empty[List[(String, Value)]]
+  private val finishedInputs = ListBuffer.empty[List[(String, Value)]]
   private val origHoles = Map.empty[Stmt, PossibilitiesHole]
   private val enteredActions = Map.empty[PossibilitiesHole, ListBuffer[(Memory, List[Action])]]
   //private val conditionEvidence = Map.empty[UnseenExpr, List[(Value, Memory)]]
@@ -631,8 +632,15 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
   private case class PruneCode(curStmts: List[Stmt]) extends RuntimeException with FastException
   private case class FixedCode(curStmt: Option[Stmt], newCode: List[Stmt]) extends RuntimeException with FastException
   // TODO: Remove asInstanceOfs
-  protected[graphprog] def executeWithHelpFromUser(memory: Memory, origStmts: List[Stmt], pruneAfterUnseen: Boolean, amFixing: Boolean, otherBranch: Option[(Stmt, Stmt, List[Stmt])] = None): (List[Action], List[Stmt], Memory) = {
-    def updateDisplay(memory: Memory, curStmt: Option[Stmt], newStmts: IMap[Stmt, Stmt], newBlocks: IMap[Stmt, List[Stmt]], layoutObjs: Boolean = true) = controller.updateDisplay(memory, getNewStmts(origStmts, newStmts, newBlocks), curStmt, layoutObjs)
+  protected[graphprog] def executeWithHelpFromUser(memory: Memory, origStmts: List[Stmt], pruneAfterUnseen: Boolean, amFixing: Boolean, otherBranch: Option[(Stmt, UnknownJoinIf)] = None): (List[Action], List[Stmt], Memory) = {
+    def updateDisplay(memory: Memory, curStmt: Option[Stmt], newStmts: IMap[Stmt, Stmt], newBlocks: IMap[Stmt, List[Stmt]], layoutObjs: Boolean = true) = {
+      val code = getNewStmts(origStmts, newStmts, newBlocks)
+      val displayCode = otherBranch match {  // Show the unknown join to the user.
+	case Some((target, UnknownJoinIf(i, _))) => addBlock(code, (Some(target), None), s => UnknownJoinIf(i, s))
+	case None => code
+      }
+      controller.updateDisplay(memory, displayCode, curStmt, layoutObjs)
+    }
     var continue = false  // Whether the user has selected to continue.
     def doFixStep(memory: Memory, curStmt: Option[Stmt], newStmts: IMap[Stmt, Stmt], newBlocks: IMap[Stmt, List[Stmt]], diffInfo: Option[(Memory, Stmt, Value)]) {
       assert(amFixing)
@@ -702,10 +710,10 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	  def updateDisplayShort(layoutObjs: Boolean = true) = updateDisplay(memory, Some(actualCurStmt), newStmts, newBlocks, layoutObjs)
 	  def doFixStepShort(diffInfo: Option[(Memory, Stmt, Value)]) = doFixStep(memory, Some(actualCurStmt), newStmts, newBlocks, diffInfo)
 	  otherBranch match {
-	    case Some((targetStmt, pred, body)) if targetStmt.eq(actualCurStmt) =>  // I don't need to compare memories since all previous times at this point I've taken the same branch (the original one).
+	    case Some((targetStmt, uif)) if targetStmt.eq(actualCurStmt) =>  // I don't need to compare memories since all previous times at this point I've taken the same branch (the original one).
 	      assert(amFixing)
 	      updateDisplay(memory, Some(actualCurStmt), newStmts, newBlocks, false)
-	      throw new FixedCode(None, controller.insertConditionalAtPoint(pred, body, stmts.dropWhile{ _.ne(curStmt) }.map{ s => newStmts.getOrElse(s, s) }))
+	      throw new FixedCode(None, controller.insertConditionalAtPoint(getNewStmts(origStmts, newStmts, newBlocks), uif, stmts.dropWhile{ _.ne(curStmt) }.map{ s => newStmts.getOrElse(s, s) }))
 	    case _ =>
 	  }
 	  actualCurStmt match {
@@ -931,8 +939,8 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
       doFixStep(finalMem, None, newStmts, newBlocks, None)
     (actions, getNewStmts(origStmts, newStmts, newBlocks), finalMem)
   }
-  private def getTraceWithHelpFromUser(code: List[Stmt], inputs: List[(String, Value)], pruneAfterUnseen: Boolean, amFixing: Boolean, otherBranch: Option[(Stmt, Stmt, List[Stmt])] = None): List[Stmt] = {
-    allInputs += inputs
+  private def getTraceWithHelpFromUser(code: List[Stmt], inputs: List[(String, Value)], pruneAfterUnseen: Boolean, amFixing: Boolean, otherBranch: Option[(Stmt, UnknownJoinIf)] = None): List[Stmt] = {
+    allInputs += inputs  // This might add duplicate inputs (when we re-do one to find a join) but comparing inputs for equality is a pain, since they're from different executions and so we can't just compare by ids.
     controller.clearScreen()
     println("We need another example to help us find your program.  " + getHoleInfo(code))
     println("Please help us finish this trace.  We currently have the following program:\n" + longPrinter.stringOfProgram(Program(name, typ, inputTypes, functions, objectTypes, code)))
@@ -951,16 +959,17 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	controller.updateDisplay(mem, code, None)
       val newCode = executeWithHelpFromUser(mem, code, pruneAfterUnseen, amFixing, otherBranch)._2
       println("Thank you for giving us this trace.  We'll get to work now.")
+      finishedInputs += inputs
       newCode
     } catch {
       case FixCode(reason, curStmt) => recurse(fixCode(code, reason, inputs, curStmt), "fix the code")
       case PruneCode(curStmts) => recurse(prunePossibilities(curStmts), "prune the code")
       case FixedCode(curStmt, newCode) => (curStmt, newCode) match {
-	case (Some(realCurStmt), UnseenStmt() :: (pred: Stmt) :: body) => allInputs.find{ input => advanceIteratorExecutorToPoint(code, curStmt, input, None).hasNext } match {
+	case (Some(realCurStmt), List(uif: UnknownJoinIf)) => allInputs.find{ input => advanceIteratorExecutorToPoint(code, curStmt, input, None).hasNext } match {
 	  case Some(newInput) =>  // We found no legal join points before, so we re-execute the original branch we saw to find the exact join.
 	    println("Aborting trace to fill a conditional.  We'll continue with this or another trace if necessary when this finishes.")
 	    controller.displayMessage("Aborting trace to fill a conditional.  We'll continue with this or another trace if necessary when this finishes.")
-	    getTraceWithHelpFromUser(code, newInput, pruneAfterUnseen, amFixing, Some((realCurStmt, pred, body)))
+	    getTraceWithHelpFromUser(code, newInput, pruneAfterUnseen, amFixing, Some((realCurStmt, uif)))
 	  case None => throw new SolverError("Cannot find previous input that brings me to a branch of a conditional I've already seen.")
 	}
 	case _ =>
@@ -1136,6 +1145,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 
   protected[graphprog] def synthesize(initialTrace: Trace): Program = {
     println(shortPrinter.stringOfStmts(initialTrace.actions))
+    allInputs += initialTrace.inputs
     val stmts = genProgramAndFillHoles(new Memory(initialTrace.inputs), initialTrace.actions, false, IMap.empty)
     synthesize(initialTrace.inputs, stmts)
   }
@@ -1154,7 +1164,6 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	synthesizeRec(getTraceWithHelpFromUser(furtherPrunedCode, inputs.get, true, false))
     }
     println("Initial statements:\n" + shortPrinter.stringOfStmts(stmts))
-    allInputs += inputs
     val (code, isFinished) = synthesizeRec(stmts)
     controller.clearDisplay(code)
     val numTraces = allInputs.size
@@ -1410,6 +1419,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 
   private def fixCode(code: List[Stmt], reason: String, input: List[(String, Value)], failingStmt: Option[Stmt]): List[Stmt] = {
     println(Console.RED + "**" + Console.RESET + "Please fix the program because " + reason + ".")
+    // FIXME!!: Call resetPruning here?
     controller.clearScreen()
     controller.updateDisplay(new Memory(input), code, None)
     controller.displayMessage("The current program is not complete because " + reason + ".  Please fix it so that we can continue.")
@@ -1419,43 +1429,43 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     prunePossibilities(fixedStmts)
   }
 
-  protected[graphprog] def addBlock(code: List[Stmt], isTrueBranch: Boolean): List[Stmt] = {
-    // Fix the condition.  We do this by re-reunning each input we've already seen on the new program and remembering the memory each time we see the condition.
-    // TODO/FIXME: Re-enable this and the corresponding code in eWHFU?  But note that the evidence I get here is sometimes wrong (seed -2107613328683781885) if I pruned too much due to missing the conditional.  So I onl want to add some of these.  Maybe only if the user enters an action after this point>
-    /*val evidence = new ListBuffer[(Value, Memory)]
-    def holeHandler(memory: Memory, hole: Hole): Stmt = hole match {
-      case hole @ PossibilitiesHole(p) =>
-	val results = p flatMap { s => try { val (v, m) = defaultExecutor.execute(memory, s); if (isErrorOrFailure(v)) Nil else List((s, v, m)) } catch { case _ => Nil } }
-	assert(holdsOverIterable(results, (x: (Stmt, Value, Memory), y: (Stmt, Value, Memory)) => areEquivalent(x._2, y._2, x._3, y._3)))
-	results.head._1
-      case _: UnseenExpr if hole eq condition =>
-	val v = BooleanConstant(isTrueBranch)
-	evidence += ((v, memory.clone))
-	v
-    }
-    val executor = new Executor(functions, longPrinter, holeHandler)
-    allInputs foreach { i => executeProgram(executor, i, codeWithBlock) }
-    //println("*****" + fillExprHole(ExprEvidenceHole(evidence.toList)))
-    conditionEvidence += (condition -> evidence.toList)*/
+  // Fix the condition.  We do this by re-reunning each input we've already seen on the new program and remembering the memory each time we see the condition.
+  protected[graphprog] def getCondition(code: List[Stmt], oldCondition: Expr, firstPossibleJoinStmt: Option[Stmt], branch: Boolean): Expr = oldCondition match {
+    case curHole @ PossibilitiesHole(possibilities) =>
+      val unseen = UnseenExpr()
+      val codeWithUnseen = addBlock(code, (firstPossibleJoinStmt, None), s => unseen)
+      val evidence = ListBuffer.empty[(Value, Memory)]
+      def holeHandler(memory: Memory, hole: Hole): Stmt = hole match {
+	case hole @ PossibilitiesHole(p) =>
+	  val results = p flatMap { s => try { val (v, m) = defaultExecutor.execute(memory, s); if (isErrorOrFailure(v)) Nil else List((s, v, m)) } catch { case _ => Nil } }
+	  assert(holdsOverIterable(results, (x: (Stmt, Value, Memory), y: (Stmt, Value, Memory)) => areEquivalent(x._2, y._2, x._3, y._3)))
+	  results.head._1
+	case _: UnseenExpr if hole eq unseen =>
+	  val v = BooleanConstant(!branch)
+	  evidence += ((v, memory))
+	  ErrorConstant
+      }
+      val executor = new Executor(functions, longPrinter, holeHandler)
+      finishedInputs foreach { i => executeProgram(executor, i, codeWithUnseen) }
+      val newCondition = possibilitiesToStmt(curHole, evidence.foldLeft(possibilities){ case (curPossibilities, (v, m)) => curPossibilities filter { p => yieldEquivalentResults(m, p, v) } }).asInstanceOf[Expr]
+      newCondition match {
+	case p: PossibilitiesHole => origHoles += p -> p
+	case _ =>
+      }
+      newCondition
+    case _ => oldCondition
+  }
+
+  protected[graphprog] def resetPruning(code: List[Stmt]): List[Stmt] = {
     // Fix pruning.  For anything that was a hole at the beginning, replace it with that original hole and then re-run all entered user actions to remove possibilities.  This has the effect of undoing pruning and then removing anything we would have removed through user interaction.
     val holeMap = origHoles.map{ case (curStmt, origHole) => curStmt -> possibilitiesToStmt(origHole, enteredActions.getOrElse(origHole, ListBuffer.empty[(Memory, List[Action])]).foldLeft(origHole.possibilities){ case (acc, (mem, actions)) => acc filter { p => actions exists { a => yieldEquivalentResults(mem, p, a) } } }) }.toMap
     holeMap foreach { case (curStmt, newStmt) => { val prevHole = origHoles.remove(curStmt).get; if (newStmt match { case PossibilitiesHole(p) => p.size != prevHole.possibilities.size case _ => true }) origHoles += (newStmt -> prevHole) } }
     getNewStmts(code, holeMap, IMap.empty)
   }
 
+  // firstPossibleJoinStmt is the "smallest" thing, e.g. it is the condition not the if.  I have the real if in the caller (see ASTUtils.getOwningStmt), but the iteratorExecutor needs the smaller one anyway.  I could combine these for some efficiency, but who cares.
   protected[graphprog] def findLegalJoinPoints(code: List[Stmt], firstPossibleJoinStmt: Option[Stmt], memAtFirstPossibleJoinStmt: Memory, memAtJoin: Memory, actionsAfterJoin: List[Action]): (Option[Stmt], List[Stmt]) = {
-    val parents = {
-      def getParentsForStmts(code: List[Stmt], parent: Option[Stmt], acc: IMap[Stmt, Option[Stmt]]): IMap[Stmt, Option[Stmt]] = {
-	def getParentsForStmt(cur: Stmt, parent: Option[Stmt], acc: IMap[Stmt, Option[Stmt]]): IMap[Stmt, Option[Stmt]] = (cur match {
-	  case If(c, t, ei, e) => getParentsForStmts(e, Some(cur), getParentsForStmts(t, Some(cur), getParentsForStmt(c, Some(cur), acc)))  // Doesn't work with else ifs
-	  case Loop(c, b) => getParentsForStmts(b, Some(cur), getParentsForStmt(c, Some(cur), acc))
-	  case UnorderedStmts(s) => getParentsForStmts(s, Some(cur), acc)
-	  case _ => acc
-	}) + (cur -> parent)
-	code.foldLeft(acc){ (acc, cur) => getParentsForStmt(cur, parent, acc) }
-      }
-     getParentsForStmts(code, None, IMap.empty) 
-    }
+    val parents = getParents(code)
 
     // Move the IteratorExecutor to the first potential join statement.
     val iteratorExecutor = advanceIteratorExecutorToPoint(code, firstPossibleJoinStmt, allInputs.last, Some(memAtFirstPossibleJoinStmt))

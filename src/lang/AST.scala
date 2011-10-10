@@ -101,6 +101,9 @@ object AST {
   case class UnorderedStmts(s: List[Stmt]) extends Action
   case class Snapshot(memory: Memory) extends Action
 
+  sealed trait Synthetic
+  case class UnknownJoinIf(known: If, unknown: List[Stmt]) extends Stmt with Synthetic
+
   case class Program(name: String, typ: Type, inputs: List[(String, Type)], functions: Map[String, Program], objectTypes: Map[String, List[(String, Type)]], stmts: List[Stmt])
   case class Trace(name: String, typ: Type, inputs: List[(String, Value)], functions: Map[String, Program], objectTypes: Map[String, List[(String, Type)]], actions: List[Action])
 

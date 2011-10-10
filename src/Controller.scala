@@ -62,53 +62,60 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
   // Returns a function that, given the actions executed since the conditional ended, finds the legal join points.
   def insertConditionalAtPoint(): (Memory, List[Action] => Option[List[Stmt]]) = {
     import graphprog.lang.{ Executor, Printer }
-    import graphprog.lang.AST.{ If, UnseenExpr, UnseenStmt }
-    import graphprog.lang.ASTUtils.addBlock
+    import graphprog.lang.AST.{ If, UnseenExpr, UnseenStmt, UnknownJoinIf, BooleanConstant }
+    import graphprog.lang.ASTUtils.{ addBlock, getOwningStmt }
     val (initMem, code, initStmt) = lastState.get
+    val realInitStmt = initStmt map { initStmt => getOwningStmt(code, initStmt) }
+    val printer = new Printer(Map[String, Value => String](), true)
 
-    // TODO/FIXME: Find a nicer way to display the code?  This shows the current stuff, but not everything else, which could proivide hints about what to do next.
     val unseenPred = UnseenExpr()
-    invokeLater{ gui.setCode(List(If(unseenPred, List(UnseenStmt()), Nil, List(UnseenStmt()))), Some(unseenPred)) }
+    invokeLater{ gui.setCode(addBlock(code, (realInitStmt, None), s => UnknownJoinIf(If(unseenPred, List(UnseenStmt()), Nil, List(UnseenStmt())), s)), Some(unseenPred)) }
     val (predAction, predStmt, predMem) = getExprTrace(initMem.clone, false).get
-    val branch = (new Executor(helperFunctions, new Printer(Map[String, Value => String](), true))).evaluateBoolean(initMem, predAction)
+    val branch = (new Executor(helperFunctions, printer)).evaluateBoolean(initMem, predAction)
+    val newPredStmt = synthesizer.getCondition(code, predStmt, realInitStmt, branch)
+
     val unseenBody = UnseenStmt()
-    invokeLater{ gui.setCode(List(if (branch) If(predStmt, List(unseenBody), Nil, List(UnseenStmt())) else If(predStmt, List(UnseenStmt()), Nil, List(unseenBody))), Some(unseenBody)) }
+    invokeLater{ gui.setCode(addBlock(code, (realInitStmt, None), s => UnknownJoinIf(if (branch) If(newPredStmt, List(unseenBody), Nil, List(UnseenStmt())) else If(newPredStmt, List(UnseenStmt()), Nil, List(unseenBody)), s)), Some(unseenBody)) }
     val (newBranchActions, newBranch, joinMem) = getStmtTrace(predMem, false, true).get
-    invokeLater{ gui.setCode(List(if (branch) If(predStmt, newBranch, Nil, List(UnseenStmt())) else If(predStmt, List(UnseenStmt()), Nil, newBranch), unseenBody), Some(unseenBody)) }
+    invokeLater{ gui.setCode(addBlock(code, (realInitStmt, None), s => UnknownJoinIf(if (branch) If(newPredStmt, newBranch, Nil, List(UnseenStmt())) else If(newPredStmt, List(UnseenStmt()), Nil, newBranch), s)), None) }
     (joinMem, (actionsAfterJoin: List[Action]) => {
       val (lastExecutedStmt, legalJoins) = synthesizer.findLegalJoinPoints(code, initStmt, initMem, joinMem, actionsAfterJoin)
       println(legalJoins.size + " legal " + pluralize("join", "joins", legalJoins.size) + ":" + (if (legalJoins.nonEmpty) "\n" + (new Printer(Map[String, Value => String](), true)).stringOfStmts(legalJoins, "  ") else ""))
       legalJoins match {
 	case joinStmt :: Nil =>
-	  val newCode = addBlock(code, (lastExecutedStmt, Some(joinStmt)), s => if (branch) If(predStmt, newBranch, Nil, s) else If(predStmt, s, Nil, newBranch))
+	  val newCode = addBlock(code, (lastExecutedStmt, Some(joinStmt)), s => if (branch) If(newPredStmt, newBranch, Nil, s) else If(newPredStmt, s, Nil, newBranch))
 	  println("New code:\n" + (new Printer(Map[String, Value => String](), true)).stringOfStmts(newCode, "  "))
 	  Some(newCode)
-	case Nil => Some(UnseenStmt() :: predStmt :: newBranch)  // TODO/FIXME: Returning an unseen as a sentinel is a hack.
+	case Nil => Some(List(UnknownJoinIf(if (branch) If(newPredStmt, newBranch, Nil, List(UnseenStmt())) else If(newPredStmt, List(UnseenStmt()), Nil, newBranch), Nil)))
 	case _ => None
       }
     })
   }
   // Called in the case where in an earlier attempt to find a join we had no legal places, so we aborted and tried the other branch.  We've seen that one before, though, and followers is a superset of what it can contain.
-  def insertConditionalAtPoint(pred: Stmt, oldBody: List[Stmt], followers: List[Stmt]): List[Stmt] = {
+  def insertConditionalAtPoint(code: List[Stmt], uif: graphprog.lang.AST.UnknownJoinIf, followers: List[Stmt]): List[Stmt] = {
     import graphprog.lang.{ Executor, Printer }
-    import graphprog.lang.AST.{ If, UnseenExpr, UnseenStmt, PossibilitiesHole }
-    import graphprog.lang.ASTUtils.addBlock
+    import graphprog.lang.AST.{ If, UnseenExpr, UnseenStmt, PossibilitiesHole, UnknownJoinIf, Not }
+    import graphprog.lang.ASTUtils.{ addBlock, getOwningStmt }
     import graphprog.lang.Executor.simpleHoleHandler
-    val (initMem, code, _) = lastState.get
+    val (initMem, uifCode, initStmt) = lastState.get  // The code here has the UnknownJoinIf in it, so we use the user-given one without it.
+    val realInitStmt = initStmt map { initStmt => getOwningStmt(code, initStmt) }
     val printer = new Printer(Map[String, Value => String](), true)
     val normalExecutor = new Executor(helperFunctions, printer)
     val holeExecutor = new Executor(helperFunctions, printer, simpleHoleHandler(normalExecutor))
-    displayMessage("There must be a conditional at this point.  Please demonstrate the guard and then the body, marking where the conditional ends.")
 
-    val unseenPred = UnseenExpr()
-    invokeLater{ gui.setCode(List(If(unseenPred, List(UnseenStmt()), Nil, List(UnseenStmt()))), Some(unseenPred)) }
-    val (predAction, predStmt, predMem) = getExprTrace(initMem.clone, false).get
-    val branch = normalExecutor.evaluateBoolean(initMem, predAction)
-    def getCode(firstStmtAfterBlock: Option[Stmt]): List[Stmt] = addBlock(code, (Some(followers.head), firstStmtAfterBlock), s => if (branch) If(predStmt, s, Nil, oldBody) else If(predStmt, oldBody, Nil, s))
+    val (branch, cond, oldBody, unseen) = uif.known match {
+      case If(c, b, _, List(u: UnseenStmt)) => (true, c, b, u)
+      case If(c, List(u: UnseenStmt), _, b) => (false, c, b, u)
+      case _ => throw new RuntimeException
+    }
+    invokeLater{ gui.setCode(uifCode, Some(unseen)) }
+    displayMessage("There must be a conditional at this point.  Please demonstrate the body, marking where the conditional ends.")
+
+    def getCode(firstStmtAfterBlock: Option[Stmt]): List[Stmt] = addBlock(code, (Some(followers.head), firstStmtAfterBlock), s => if (branch) If(cond, oldBody, Nil, s) else If(cond, s, Nil, oldBody))
     // Walk through the followers, showing the user what they are and asking whether to continue or end the conditional
-    followers.foldLeft((List[Stmt](), predMem)){ case ((prevStmts, curMem), curStmt) => {
+    followers.foldLeft((List[Stmt](), initMem.clone)){ case ((prevStmts, curMem), curStmt) => {
       val unseenBody = UnseenStmt()
-      updateDisplay(curMem, List(if (branch) If(predStmt, prevStmts :+ unseenBody, Nil, oldBody) else If(predStmt, oldBody, Nil, prevStmts :+ unseenBody)), Some(unseenBody), false)
+      updateDisplay(curMem, addBlock(code, (realInitStmt, None), s => UnknownJoinIf(if (branch) If(cond, oldBody, Nil, prevStmts :+ unseenBody) else If(cond, prevStmts :+ unseenBody, Nil, oldBody), s.drop(prevStmts.size))), Some(unseenBody), false)
       val (v, m) = holeExecutor.execute(curMem, curStmt)
       // FIXME: This (and code that gets legal joins in synthesis) fails when a stmt is a conditional with a hole for the condition.  In Synthesis we can't execute it so we think it's an illegal join while here we don't show a diff.  Example random seed (currently): 6987549502241748574.
       doFixStep(Some((m, curStmt, v)), true) match {
