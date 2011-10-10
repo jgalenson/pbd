@@ -144,12 +144,12 @@ private class Menu(private val synthesisGUI: SynthesisGUI, private val controls:
     fixProgramFromTrace.setEnabled(flag)
     fixProgramFromHole.setEnabled(flag)
   }
-  def showFixProgram(canContinue: Boolean, amInConditional: Boolean) {
+  def showFixProgram(canContinue: Boolean, amInConditional: Boolean, canDiverge: Boolean) {
     fixProgram.setEnabled(true)
     steper.setEnabled(canContinue)
     continuer.setEnabled(canContinue && !amInConditional)  // We need the user to mark the end of the conditional, so don't let them continue.
-    insertConditionalFromHole.setEnabled(!amInConditional)
-    insertConditional.setEnabled(!amInConditional)
+    insertConditionalFromHole.setEnabled(!amInConditional && canDiverge)
+    insertConditional.setEnabled(!amInConditional && canDiverge)
     endConditionalWhenFixing.setEnabled(amInConditional)
   }
   def hideFixProgram() {
@@ -284,10 +284,10 @@ private class Toolbar(private val synthesisGUI: SynthesisGUI, private val contro
   }
   
   def showTraceToolbar() = showToolbar(traceBox)
-  def showFixProgramToolbar(canContinue: Boolean, amInConditional: Boolean) {
+  def showFixProgramToolbar(canContinue: Boolean, amInConditional: Boolean, canDiverge: Boolean) {
     stepButton.setEnabled(canContinue)
     continueButton.setEnabled(canContinue && !amInConditional)  // We need the user to mark the end of the conditional, so don't let them continue.
-    insertConditionalButton.setEnabled(!amInConditional)
+    insertConditionalButton.setEnabled(!amInConditional && canDiverge)
     endConditionalButton.setEnabled(amInConditional)
     showToolbar(fixProgramBox)
   }
@@ -364,9 +364,9 @@ protected[gui] class Controls(private val synthesisGUI: SynthesisGUI, private va
     menu.enableDisableFixProgramStarters(allowFixing)
   }
   def hideHoleControls() = menu.hideHoleMenu()
-  def showFixingControls(canContinue: Boolean, amInConditional: Boolean) {
-    menu.showFixProgram(canContinue, amInConditional)
-    toolbar.showFixProgramToolbar(canContinue, amInConditional)
+  def showFixingControls(canContinue: Boolean, amInConditional: Boolean, canDiverge: Boolean) {
+    menu.showFixProgram(canContinue, amInConditional, canDiverge)
+    toolbar.showFixProgramToolbar(canContinue, amInConditional, canDiverge)
   }
   def hideFixingControls() {
     menu.hideFixProgram()

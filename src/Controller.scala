@@ -51,12 +51,12 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
     } }
   }
 
-  def doFixStep(diffInfo: Option[(Memory, Stmt, Value)], amInConditional: Boolean = false): FixInfo = {
+  def doFixStep(diffInfo: Option[(Memory, Stmt, Value)], amInConditional: Boolean = false, canDiverge: Boolean = true): FixInfo = {
     val newDiffInfo = diffInfo map { case (mem, stmt, value) => (mem, (stmt, value) match {
       case (_: Expr, p: Primitive) => Some(p)  // Let's only show the value if the current statement is an expression that returns a primitive.  We don't want, e.g., assign results or objects.
       case _ => None
     }) }
-    invokeLater{ gui.doFixStep(newDiffInfo, amInConditional) }
+    invokeLater{ gui.doFixStep(newDiffInfo, amInConditional, canDiverge) }
     getFixInfo()
   }
   // Returns a function that, given the actions executed since the conditional ended, finds the legal join points.
@@ -118,7 +118,7 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
       updateDisplay(curMem, addBlock(code, (realInitStmt, None), s => UnknownJoinIf(if (branch) If(cond, oldBody, Nil, prevStmts :+ unseenBody) else If(cond, prevStmts :+ unseenBody, Nil, oldBody), s.drop(prevStmts.size))), Some(unseenBody), false)
       val (v, m) = holeExecutor.execute(curMem, curStmt)
       // FIXME: This (and code that gets legal joins in synthesis) fails when a stmt is a conditional with a hole for the condition.  In Synthesis we can't execute it so we think it's an illegal join while here we don't show a diff.  Example random seed (currently): 6987549502241748574.
-      doFixStep(Some((m, curStmt, v)), true) match {
+      doFixStep(Some((m, curStmt, v)), true, false) match {
 	case EndConditional => return getCode(Some(curStmt))
 	case Step => (prevStmts :+ curStmt, m)
 	case _ => throw new RuntimeException

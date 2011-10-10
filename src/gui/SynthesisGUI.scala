@@ -99,7 +99,7 @@ class SynthesisGUI private (private val controller: Controller, private val help
     canvas.setPossibilities(possibilities)
     controls.showHoleControls(!amFixing && depth == 0)
     if (amFixing)
-      controls.showFixingControls(false, false)
+      controls.showFixingControls(false, false, true)
     repaint()
   }
 
@@ -149,9 +149,9 @@ class SynthesisGUI private (private val controller: Controller, private val help
     controller.setStmtTrace(result)
   }
 
-  def doFixStep(diffInfo: Option[(Memory, Option[Primitive])], amInConditional: Boolean) = diffInfo match {
+  def doFixStep(diffInfo: Option[(Memory, Option[Primitive])], amInConditional: Boolean, canDiverge: Boolean) = diffInfo match {
     case Some((diffMemory, valueOpt)) =>
-      controls.showFixingControls(true, amInConditional)
+      controls.showFixingControls(true, amInConditional, canDiverge)
       canvas.showMemoryDiff(diffMemory, valueOpt)
     case None => insertConditionalAtPoint()
   }

@@ -649,7 +649,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	case _ =>
 	  continue = false
 	  updateDisplay(memory, curStmt, newStmts, newBlocks, false)
-	  controller.doFixStep(diffInfo) match {
+	  controller.doFixStep(diffInfo, canDiverge = !otherBranch.isDefined) match {
 	    case Step => // Do nothing, which accepts the current choice.
 	    case Continue => continue = true
 	    case Code(code) => throw new FixedCode(curStmt, code)
