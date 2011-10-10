@@ -220,7 +220,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
       }
     }
     def possibilitySelected(actions: List[Action]) {
-      gui.setActions(Some(actions))
+      gui.setActions(Actions(actions))
       leaveQueryMode()
     }
     def snapBackArrow(arrow: Arrow, x: Int, y: Int) = {
@@ -1258,12 +1258,12 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     gui.hideTraceControls()
     // TODO/FIXME: Add the ability to do LiteralExpr/Stmt.  By default it's off, but it should be selectable.
     // TODO/FIXME: Investigate why we ask so many more queries (GuiTest selectionSort vs. Test selectionSortSwap).  Part is that we don't give as much (Test gives the second full iteration and the third condition).  We also don't do initial pruning before the second trace.  Is there more to it?  Can we regain some of this?  selectionSortSwap in Test takes about 6 queries.  GuiTest with same array asks, on the first trace, 5 in the inner loop, 5 on outer loop, then 9 afterwards.  Part of this is due to the fact that we get fewer details after the first iteration: Test will give i<a.length form every iteration, GuiTest will give it for the first iteration but true/false after that, which has less information.
-    invokeOffSwingThread[(Memory, Iterate, Loop), Unit]({
+    invokeOffSwingThread[LoopFinalInfo, Unit]({
       gui.synthesizeLoop(curBlock.initialMemory, blockToAction(curBlock, None).asInstanceOf[Iterate], curMode.loops, makeMemory())  //  We need the memory before executing any actions in the loop.
-    }, result => {
+    }, _ match {
+      case LoopInfo((finalMem, iterate, loop)) =>
 	mode = curMode
 	curMode.curBlocks = restBlocks
-	val (finalMem, iterate, loop) = result
 	curMode.loops += iterate -> loop
 	addActionToTraceBlock(iterate, curMode)
 	gui.setCode(curCode._1, curCode._2, Some(getTraceModeActions(curMode, true)))
@@ -1271,6 +1271,9 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	// Update memory with the results from later iterations of the loop and repaint to see it on the screen.
 	updateDisplayWithMemory(getGraphics().asInstanceOf[Graphics2D], finalMem, true)
 	repaint()
+      case e: EndTrace =>
+	finishTraceMode()
+	gui.finishStmtTrace(e)
       })
   }
 
@@ -1406,6 +1409,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     mode = Observer
     removeMouseMotionListener(tooltipListener)
     removeMouseMotionListener(callHoverListener)
+    hideMemoryDiff()
   }
 
 }

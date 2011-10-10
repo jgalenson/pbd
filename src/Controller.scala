@@ -13,9 +13,9 @@ import Utils._
 protected[graphprog] class Controller(private val synthesisCreator: Controller => Synthesis, private val helperFunctions: Map[String, Program], private val objectTypes: Map[String, List[(String, Type)]], private val objectComparators: Map[String, (Value, Value) => Int], private val fieldLayouts: Map[String, List[List[String]]], private val objectLayouts: Map[String, ObjectLayout]) {
 
   protected var lastState: Option[(Memory, List[Stmt], Option[Stmt])] = None
-  protected val actionsVar = new SingleUseSyncVar[Option[List[Action]]]
-  protected val stmtTraceVar = new SingleUseSyncVar[Option[(List[Action], TMap[Iterate, Loop], Memory)]]
-  protected val exprTraceVar = new SingleUseSyncVar[Option[(Expr, Memory)]]
+  protected val actionsVar = new SingleUseSyncVar[ActionsInfo]
+  protected val stmtTraceVar = new SingleUseSyncVar[StmtTraceIntermediateInfo]
+  protected val exprTraceVar = new SingleUseSyncVar[ExprTraceIntermediateInfo]
   protected val fixInfo = new SingleUseSyncVar[FixInfo]
 
   protected val synthesizer = synthesisCreator(this)
@@ -30,25 +30,31 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
   }
   def clearDisplay(stmts: List[Stmt]) = invokeAndWait{ gui.updateDisplay(None, stmts, None, false) }
 
-  def getActions(possibilities: List[Action], amFixing: Boolean): Option[List[Action]] = {
+  def getActions(possibilities: List[Action], amFixing: Boolean): ActionsInfo = {
     invokeAndWait{ gui.getActions(possibilities, amFixing) }
     actionsVar.get
   }
 
-  def getStmtTrace(memory: Memory, canFix: Boolean, isConditional: Boolean = false): Option[(List[Action], List[Stmt], Memory)] = {
+  def getStmtTrace(memory: Memory, canFix: Boolean, isConditional: Boolean = false): StmtTraceFinalInfo = {
     invokeLater{ gui.getStmtTrace(memory, canFix, isConditional) }
-    stmtTraceVar.get map { case (actions, loops, newMemory) => {
+    stmtTraceVar.get match {
+      case StmtIntermediateInfo((actions, loops, newMemory)) =>
 	// TODO/FIXME: Does this really guarantee that I wake up the last waiter rather than a random one?  If I end up changing this, probably integrate SynthesisGUI.depth into that.
 	val stmts = synthesizer.genProgramAndFillHoles(memory, actions, false, loops)
-      (actions, stmts, newMemory)
-    } }
+	StmtInfo((actions, stmts, newMemory))
+      case Fix => Fix
+      case e: EndTrace => e
+    }
   }
-  def getExprTrace(memory: Memory, canFix: Boolean): Option[(Expr, Expr, Memory)] = {
+  def getExprTrace(memory: Memory, canFix: Boolean): ExprTraceFinalInfo = {
     invokeLater{ gui.getExprTrace(canFix) }
-    exprTraceVar.get map { case (enteredExpr, newMemory) => {
-      val exprCode = synthesizer.genProgramAndFillHoles(memory, enteredExpr)
-      (enteredExpr, exprCode, newMemory)
-    } }
+    exprTraceVar.get match {
+      case ExprIntermediateInfo((enteredExpr, newMemory)) =>
+	val exprCode = synthesizer.genProgramAndFillHoles(memory, enteredExpr)
+	ExprInfo((enteredExpr, exprCode, newMemory))
+      case Fix => Fix
+      case e: EndTrace => e
+    }
   }
 
   def doFixStep(diffInfo: Option[(Memory, Stmt, Value)], amInConditional: Boolean = false, canDiverge: Boolean = true): FixInfo = {
@@ -60,7 +66,7 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
     getFixInfo()
   }
   // Returns a function that, given the actions executed since the conditional ended, finds the legal join points.
-  def insertConditionalAtPoint(): (Memory, List[Action] => Option[List[Stmt]]) = {
+  def insertConditionalAtPoint(): ConditionalInfo = {
     import graphprog.lang.{ Executor, Printer }
     import graphprog.lang.AST.{ If, UnseenExpr, UnseenStmt, UnknownJoinIf, BooleanConstant }
     import graphprog.lang.ASTUtils.{ addBlock, getOwningStmt }
@@ -70,15 +76,22 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
 
     val unseenPred = UnseenExpr()
     invokeLater{ gui.setCode(addBlock(code, (realInitStmt, None), s => UnknownJoinIf(If(unseenPred, List(UnseenStmt()), Nil, List(UnseenStmt())), s)), Some(unseenPred)) }
-    val (predAction, predStmt, predMem) = getExprTrace(initMem.clone, false).get
+    val (predAction, predStmt, predMem) = getExprTrace(initMem.clone, false) match {
+      case ExprInfo(i) => i
+      case e: EndTrace => return e
+    }
     val branch = (new Executor(helperFunctions, printer)).evaluateBoolean(initMem, predAction)
     val newPredStmt = synthesizer.getCondition(code, predStmt, realInitStmt, branch)
 
     val unseenBody = UnseenStmt()
     invokeLater{ gui.setCode(addBlock(code, (realInitStmt, None), s => UnknownJoinIf(if (branch) If(newPredStmt, List(unseenBody), Nil, List(UnseenStmt())) else If(newPredStmt, List(UnseenStmt()), Nil, List(unseenBody)), s)), Some(unseenBody)) }
-    val (newBranchActions, newBranch, joinMem) = getStmtTrace(predMem, false, true).get
+    val (newBranchActions, newBranch, joinMem) = getStmtTrace(predMem, false, true) match {
+      case StmtInfo(i) => i
+      case e: EndTrace => return e
+    }
+
     invokeLater{ gui.setCode(addBlock(code, (realInitStmt, None), s => UnknownJoinIf(if (branch) If(newPredStmt, newBranch, Nil, List(UnseenStmt())) else If(newPredStmt, List(UnseenStmt()), Nil, newBranch), s)), None) }
-    (joinMem, (actionsAfterJoin: List[Action]) => {
+    JoinFinderInfo(joinMem, (actionsAfterJoin: List[Action]) => {
       val (lastExecutedStmt, legalJoins) = synthesizer.findLegalJoinPoints(code, initStmt, initMem, joinMem, actionsAfterJoin)
       println(legalJoins.size + " legal " + pluralize("join", "joins", legalJoins.size) + ":" + (if (legalJoins.nonEmpty) "\n" + (new Printer(Map[String, Value => String](), true)).stringOfStmts(legalJoins, "  ") else ""))
       legalJoins match {
@@ -92,7 +105,7 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
     })
   }
   // Called in the case where in an earlier attempt to find a join we had no legal places, so we aborted and tried the other branch.  We've seen that one before, though, and followers is a superset of what it can contain.
-  def insertConditionalAtPoint(code: List[Stmt], uif: graphprog.lang.AST.UnknownJoinIf, followers: List[Stmt]): List[Stmt] = {
+  def insertConditionalAtPoint(code: List[Stmt], uif: graphprog.lang.AST.UnknownJoinIf, followers: List[Stmt]): JoinInfo = {
     import graphprog.lang.{ Executor, Printer }
     import graphprog.lang.AST.{ If, UnseenExpr, UnseenStmt, PossibilitiesHole, UnknownJoinIf, Not }
     import graphprog.lang.ASTUtils.{ addBlock, getOwningStmt }
@@ -111,7 +124,7 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
     invokeLater{ gui.setCode(uifCode, Some(unseen)) }
     displayMessage("There must be a conditional at this point.  Please demonstrate the body, marking where the conditional ends.")
 
-    def getCode(firstStmtAfterBlock: Option[Stmt]): List[Stmt] = addBlock(code, (Some(followers.head), firstStmtAfterBlock), s => if (branch) If(cond, oldBody, Nil, s) else If(cond, s, Nil, oldBody))
+    def getCode(firstStmtAfterBlock: Option[Stmt]): Code = Code(addBlock(code, (Some(followers.head), firstStmtAfterBlock), s => if (branch) If(cond, oldBody, Nil, s) else If(cond, s, Nil, oldBody)))
     // Walk through the followers, showing the user what they are and asking whether to continue or end the conditional
     followers.foldLeft((List[Stmt](), initMem.clone)){ case ((prevStmts, curMem), curStmt) => {
       val unseenBody = UnseenStmt()
@@ -121,6 +134,7 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
       doFixStep(Some((m, curStmt, v)), true, false) match {
 	case EndConditional => return getCode(Some(curStmt))
 	case Step => (prevStmts :+ curStmt, m)
+	case e: EndTrace => return e
 	case _ => throw new RuntimeException
       }
     } }
@@ -128,21 +142,33 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
   }
   def getFixInfo(): FixInfo = fixInfo.get
 
-  def setActions(actions: Option[List[Action]]) = actionsVar set actions
-  def setStmtTrace(trace: Option[(List[Action], TMap[Iterate, Loop], Memory)]) = stmtTraceVar set trace
-  def setExprTrace(expr: Option[(Expr, Memory)]) = exprTraceVar set expr
+  def setActions(actions: ActionsInfo) = actionsVar set actions
+  def setStmtTrace(trace: StmtTraceIntermediateInfo) = stmtTraceVar set trace
+  def setExprTrace(expr: ExprTraceIntermediateInfo) = exprTraceVar set expr
   def setFixInfo(info: FixInfo) = fixInfo set info
 
   // TODO/FIXME: I should do pruning here after genProgramAndFillHoles but before executeWithHelpFromUser.  That might reduce the num of questions I ask for later iterations.  But for that, I need to have access to the entire program up to this point.  Canvas' Tracer has the current unseen part, but I don't have everything before it.  Once I modify executeWithHelpFromUser to keep the whole program, I can have that.  Note that I can also add pruning to places inside executeWithHelpFromUser, perhaps after I get an unseen statement.
-  def synthesizeLoop(initialMemory: Memory, firstIteration: Iterate, loops: TMap[Iterate, Loop], curMemory: Memory): (Memory, Iterate, Loop) = {
+  def synthesizeLoop(initialMemory: Memory, firstIteration: Iterate, loops: TMap[Iterate, Loop], curMemory: Memory): LoopFinalInfo = {
     val stmts = synthesizer.genProgramAndFillHoles(initialMemory, List(firstIteration), true, loops)
     firstIteration match {
-      case Iterate(List((_, Nil))) => (curMemory, firstIteration, singleton(stmts).asInstanceOf[Loop])  // If the first iteration is empty, do not execute the loop.
+      case Iterate(List((_, Nil))) => LoopInfo((curMemory, firstIteration, singleton(stmts).asInstanceOf[Loop]))  // If the first iteration is empty, do not execute the loop.
       case _ =>
-	val (allIterations, loop, finalMem) = ((firstIteration, synthesizer.executeWithHelpFromUser(curMemory, stmts, false, false)): @unchecked) match {
-	  case (Iterate(i1 :: Nil), (Iterate(irest) :: Nil, (l: Loop) :: Nil, m)) => (Iterate(i1 :: irest), l, m)
+	val (allIterations, loop, finalMem) = ((firstIteration, synthesizer.executeLoopWithHelpFromUser(curMemory, stmts, false, false)): @unchecked) match {
+	  case (Iterate(i1 :: Nil), StmtInfo((Iterate(irest) :: Nil, (l: Loop) :: Nil, m))) => (Iterate(i1 :: irest), l, m)
+	  case (_, e: EndTrace) => return e
 	}
-      (finalMem, allIterations, loop)
+      LoopInfo((finalMem, allIterations, loop))
+    }
+  }
+
+  def skipTrace(queryType: QueryType, sameInput: Boolean, saveChanges: Boolean) {
+    clearScreen()
+    val ender = EndTrace(sameInput, saveChanges)
+    queryType match {
+      case Actions => setActions(ender)
+      case StmtTrace => setStmtTrace(ender)
+      case ExprTrace => setExprTrace(ender)
+      case FixType => setFixInfo(ender)
     }
   }
 
@@ -191,11 +217,39 @@ object Controller {
     }
   }
 
-  // The possible results of user actions when we're in fixing/debug walkthrough mode.
-  protected[graphprog] sealed abstract class FixInfo
-  protected[graphprog] case class Code(code: List[Stmt]) extends FixInfo
+  /**
+   * Types for communication.
+   * The two intermediate types are the result directly returned from the GUI
+   * while the non-intermediate versions are the real data we want returned.
+   */
+  protected[graphprog] sealed trait ActionsInfo
+  protected[graphprog] sealed trait StmtTraceIntermediateInfo
+  protected[graphprog] sealed trait StmtTraceFinalInfo
+  protected[graphprog] sealed trait ExprTraceIntermediateInfo
+  protected[graphprog] sealed trait ExprTraceFinalInfo
+  protected[graphprog] sealed trait FixInfo  // The different things the user can do when we're in fix/debug mode.
+  protected[graphprog] sealed trait ConditionalInfo
+  protected[graphprog] sealed trait JoinInfo
+  protected[graphprog] sealed trait LoopIntermediateInfo
+  protected[graphprog] sealed trait LoopFinalInfo
+  protected[graphprog] case class Actions(actions: List[Action]) extends ActionsInfo
+  protected[graphprog] case class StmtIntermediateInfo(stmtInfo: (List[Action], TMap[Iterate, Loop], Memory)) extends StmtTraceIntermediateInfo
+  protected[graphprog] case class StmtInfo(stmtInfo: (List[Action], List[Stmt], Memory)) extends StmtTraceFinalInfo with LoopIntermediateInfo
+  protected[graphprog] case class ExprIntermediateInfo(exprInfo: (Expr, Memory)) extends ExprTraceIntermediateInfo
+  protected[graphprog] case class ExprInfo(exprInfo: (Expr, Expr, Memory)) extends ExprTraceFinalInfo
+  protected[graphprog] case class Code(code: List[Stmt]) extends FixInfo with JoinInfo
+  protected[graphprog] case object Fix extends ActionsInfo with StmtTraceIntermediateInfo with StmtTraceFinalInfo with ExprTraceIntermediateInfo with ExprTraceFinalInfo
   protected[graphprog] case object Step extends FixInfo
   protected[graphprog] case object Continue extends FixInfo
   protected[graphprog] case object EndConditional extends FixInfo
+  protected[graphprog] case class EndTrace(sameInput: Boolean, saveChanges: Boolean) extends ActionsInfo with StmtTraceIntermediateInfo with StmtTraceFinalInfo with ExprTraceIntermediateInfo with ExprTraceFinalInfo with FixInfo with ConditionalInfo with JoinInfo with LoopIntermediateInfo with LoopFinalInfo
+  protected[graphprog] case class JoinFinderInfo(memory: Memory, joinFinder: List[Action] => Option[List[Stmt]]) extends ConditionalInfo
+  protected[graphprog] case class LoopInfo(info: (Memory, Iterate, Loop)) extends LoopFinalInfo
+
+  protected[graphprog] sealed abstract class QueryType
+  protected[graphprog] case object Actions extends QueryType
+  protected[graphprog] case object StmtTrace extends QueryType
+  protected[graphprog] case object ExprTrace extends QueryType
+  protected[graphprog] case object FixType extends QueryType
 
 }

@@ -103,7 +103,7 @@ class SynthesisGUI private (private val controller: Controller, private val help
     repaint()
   }
 
-  protected[gui] def setActions(actions: Option[List[Action]]) {
+  protected[gui] def setActions(actions: ActionsInfo) {
     controls.hideHoleControls()
     repaint()  // Repaint after we finish the selection to, e.g., remove the hilighting
     controller.setActions(actions)
@@ -111,16 +111,16 @@ class SynthesisGUI private (private val controller: Controller, private val help
   protected[gui] def setNoAction() {
     canvas.clear()
     emptyStatusBarText()
-    setActions(None)
+    setActions(Fix)
   }
 
   def getStmtTrace(memory: Memory, canFix: Boolean, isConditional: Boolean) {
-    controls.startTraceMode(false, canFix && depth == 0, isConditional)
+    controls.startTraceMode(false, canFix && depth == 0, isConditional, false)
     canvas.startStmtTraceMode(memory)
     repaint()
   }
   def getExprTrace(canFix: Boolean) {
-    controls.startTraceMode(true, canFix && depth == 0, false)
+    controls.startTraceMode(true, canFix && depth == 0, false, false)
     canvas.startExprTraceMode()
     repaint()
   }
@@ -128,22 +128,22 @@ class SynthesisGUI private (private val controller: Controller, private val help
   // This is called from the Menu, so I do not need to call hideTraceControls.
   protected[gui] def finishStmtTrace() {
     val (actions, loops, mem) = canvas.finishStmtTraceMode()
-    finishStmtTrace(Some((actions, loops, mem)))
+    finishStmtTrace(StmtIntermediateInfo((actions, loops, mem)))
     repaint()
   }
   protected[gui] def setTraceExpr(e: Expr, m: Memory) {
     controls.finishExprTraceMode()
-    controller.setExprTrace(Some((e, m)))
+    controller.setExprTrace(ExprIntermediateInfo((e, m)))
   }
   protected[gui] def setNoTrace(isExpr: Boolean) {
     canvas.finishTraceMode()
     if (isExpr)
-      controller.setExprTrace(None)
+      controller.setExprTrace(Fix)
     else
-      finishStmtTrace(None)
+      finishStmtTrace(Fix)
     repaint()
   }
-  private def finishStmtTrace(result: Option[(List[Action], TMap[Iterate, Loop], Memory)]) {
+  protected[gui] def finishStmtTrace(result: StmtTraceIntermediateInfo) {
     hideTraceControls()  // This gets called from Menu, but we have to call this to notify Toolbar.
     controls.discardAllEdits()
     controller.setStmtTrace(result)
@@ -166,14 +166,17 @@ class SynthesisGUI private (private val controller: Controller, private val help
   protected[gui] def insertConditionalAtPoint() {
     if (canvas.isQueryMode()) {
       canvas.leaveQueryMode()
-      controller.setActions(None)
+      controls.hideHoleControls()
+      controller.setActions(Fix)
     }
     hideFixingGui()
     showMessage(this, "There must be a conditional at this point.  Please demonstrate the guard and then the body, marking where the conditional ends.", "Insert a conditional")
-    invokeOffSwingThread(controller.insertConditionalAtPoint(), (result: (Memory, List[Action] => Option[List[Stmt]])) => {
-      controls.startTraceMode(false, false, false)
-      canvas.startJoinGuessMode(result._1, result._2)
-      repaint()
+    invokeOffSwingThread(controller.insertConditionalAtPoint(), (result: ConditionalInfo) => result match {
+      case JoinFinderInfo(mem, joinFinder) => 
+	controls.startTraceMode(false, false, false, true)
+	canvas.startJoinGuessMode(mem, joinFinder)
+	repaint()
+      case e: EndTrace => controller.setFixInfo(e)
     })
   }
   // Called when we've found the join point for a conditional.
@@ -197,7 +200,7 @@ class SynthesisGUI private (private val controller: Controller, private val help
 
   protected[gui] def layoutObjects() = canvas.layoutObjects()
 
-  protected[gui] def synthesizeLoop(initialMemory: Memory, loop: Iterate, loops: TMap[Iterate, Loop], curMemory: Memory): (Memory, Iterate, Loop) = {
+  protected[gui] def synthesizeLoop(initialMemory: Memory, loop: Iterate, loops: TMap[Iterate, Loop], curMemory: Memory): LoopFinalInfo = {
     depth += 1
     controls.discardAllEdits()  // TODO: I probably shouldn't call this off the Swing thread like this.
     val result = controller.synthesizeLoop(initialMemory, loop, loops, curMemory)
@@ -206,6 +209,10 @@ class SynthesisGUI private (private val controller: Controller, private val help
   }
 
   protected[gui] def getCode() = code.getCode()
+
+  protected[gui] def skipTrace(queryType: QueryType, sameInput: Boolean, saveChanges: Boolean) {
+    controller.skipTrace(queryType, sameInput, saveChanges)
+  }
 
   protected[gui] def addEdit(e: javax.swing.undo.UndoableEdit) = controls.addEdit(e)
 

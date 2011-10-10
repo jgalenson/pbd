@@ -6,6 +6,7 @@ import graphprog.lang.AST.Program
 import graphprog.lang.Compiler.parseOpt
 import graphprog.gui.{ Prog, BinaryOp, UnaryOp }
 import graphprog.gui.SynthesisGUI
+import graphprog.Controller._
 import graphprog.Utils._
 
 private class Menu(private val synthesisGUI: SynthesisGUI, private val controls: Controls, private val functions: Iterable[Program]) extends JMenuBar {
@@ -102,6 +103,8 @@ private class Menu(private val synthesisGUI: SynthesisGUI, private val controls:
 
     setupControl(fixProgramFromTrace, trace, _ => controls.setNoTrace())
 
+    setupControl(new JMenuItem("Skip trace"), trace, _ => skipTrace(synthesisGUI, controls.getTraceType()), KeyEvent.VK_S)
+
     trace.addSeparator()
 
     setupControl(finishTrace, trace, _ => controls.endBlock(), KeyEvent.VK_F)
@@ -117,6 +120,8 @@ private class Menu(private val synthesisGUI: SynthesisGUI, private val controls:
 
     setupControl(insertConditionalFromHole, hole, _ => synthesisGUI.insertConditionalAtPoint(), KeyEvent.VK_I)
 
+    setupControl(new JMenuItem("Skip trace"), hole, _ => skipTrace(synthesisGUI, Actions), KeyEvent.VK_S)
+
     hole.setEnabled(false)
     add(hole)
   }
@@ -131,6 +136,8 @@ private class Menu(private val synthesisGUI: SynthesisGUI, private val controls:
     setupControl(insertConditional, fixProgram, _ => synthesisGUI.insertConditionalAtPoint(), KeyEvent.VK_I)
 
     setupControl(endConditionalWhenFixing, fixProgram, _ => synthesisGUI.endConditional(), KeyEvent.VK_E)
+
+    setupControl(new JMenuItem("Skip trace"), fixProgram, _ => skipTrace(synthesisGUI, FixType), KeyEvent.VK_S)
 
     fixProgram.setEnabled(false)
     add(fixProgram)
@@ -170,7 +177,7 @@ private class Menu(private val synthesisGUI: SynthesisGUI, private val controls:
     case Loop(_) => endIteration
   }
   private def newCurBlock(block: Block) = block match {
-    case Trace(isExpr, _, isConditional) =>
+    case Trace(isExpr, _, isConditional, _) =>
       starters.foreach{ _.setEnabled(!isExpr) }
       enders.foreach{ _.setEnabled(false) }
       finishTrace.setEnabled(!isExpr)
@@ -306,12 +313,12 @@ private class Toolbar(private val synthesisGUI: SynthesisGUI, private val contro
     case None => ender.setEnabled(false)
     case Some(b) =>
       b match {
-	case Trace(true, _, _) => ender.setEnabled(false)
+	case Trace(true, _, _, _) => ender.setEnabled(false)
 	case _ => ender.setEnabled(true)
       }
       b match {
-	case Trace(_, _, false) => ender.setLabel("Finish trace")
-	case Trace(_, _, true) => ender.setLabel("End conditional")
+	case Trace(_, _, false, _) => ender.setLabel("Finish trace")
+	case Trace(_, _, true, _) => ender.setLabel("End conditional")
 	case Unordered => ender.setLabel("End unordered")
 	case Snapshot => ender.setLabel("End snapshot")
 	case Conditional(_) => ender.setLabel("End conditional")
@@ -332,19 +339,19 @@ protected[gui] class Controls(private val synthesisGUI: SynthesisGUI, private va
   private val curBlocks = new scala.collection.mutable.Stack[Block]
   private val undoManager = new UndoManager
 
-  def startTraceMode(isExpr: Boolean, allowFixing: Boolean, isConditional: Boolean) {
-    startBlock(Trace(isExpr, allowFixing, isConditional))
+  def startTraceMode(isExpr: Boolean, allowFixing: Boolean, isConditional: Boolean, amFindingJoin: Boolean) {
+    startBlock(Trace(isExpr, allowFixing, isConditional, amFindingJoin))
   }
   def finishExprTraceMode() = {
-    assert(curBlocks.headOption match { case Some(Trace(true, _, _)) => true case _ => false })
+    assert(curBlocks.headOption match { case Some(Trace(true, _, _, _)) => true case _ => false })
     endBlock()
   }
   def finishStmtTraceMode() = {
-    assert(curBlocks.headOption match { case Some(Trace(false, _, _)) => true case _ => false })
+    assert(curBlocks.headOption match { case Some(Trace(false, _, _, _)) => true case _ => false })
     endBlock(true)
   }
   def showTraceControls() {
-    menu.enableDisableFixProgramStarters(curBlocks.collect{ case Trace(_, allowFixing, _) => allowFixing }.head)
+    menu.enableDisableFixProgramStarters(curBlocks.collect{ case Trace(_, allowFixing, _, _) => allowFixing }.head)
     menu.showTraceMenu()
     toolbar.showTraceToolbar()
   }
@@ -374,7 +381,7 @@ protected[gui] class Controls(private val synthesisGUI: SynthesisGUI, private va
   }
 
   def setNoTrace() {
-    synthesisGUI.setNoTrace(curBlocks.collect{ case Trace(isExpr, true, _) => isExpr }.head)
+    synthesisGUI.setNoTrace(curBlocks.collect{ case Trace(isExpr, true, _, _) => isExpr }.head)
   }
 
   def addEdit(e: UndoableEdit) {
@@ -439,7 +446,7 @@ protected[gui] class Controls(private val synthesisGUI: SynthesisGUI, private va
     }
     val curBlock = removeBlock()
     curBlock match {
-      case Trace(isExpr, _, _) => 
+      case Trace(isExpr, _, _, _) => 
 	if (!isExpr && !guiAlreadyEnded)
 	  synthesisGUI.finishStmtTrace()  // ExprTrace is ended by Canvas, not Controls
       case Loop(true) => synthesisGUI.finishIteration()
@@ -449,7 +456,7 @@ protected[gui] class Controls(private val synthesisGUI: SynthesisGUI, private va
   protected[controls] def addActionIfValid(str: String, shouldDoExpr: Boolean = true) {
     def isLegalStart(newBlock: Block) = curBlocks.headOption match {
       case Some(curBlock) => curBlock match {
-	case Trace(isExpr, _, _) => !isExpr
+	case Trace(isExpr, _, _, _) => !isExpr
 	case Unordered => newBlock != Unordered
 	case Snapshot => false
 	case b: BlockWithCondition => b.seenCondition
@@ -532,6 +539,13 @@ protected[gui] class Controls(private val synthesisGUI: SynthesisGUI, private va
     }
   }
 
+  protected[gui] def getTraceType(): QueryType = curBlocks.lastOption match { 
+    case Some(Trace(false, _, _, true)) => FixType
+    case Some(Trace(true, _, _, false)) => ExprTrace
+    case Some(Trace(false, _, _, false)) => StmtTrace
+    case _ => throw new RuntimeException("Unexpected head block: " + curBlocks)
+  }
+
 }
 
 private object Controls {
@@ -553,7 +567,7 @@ private object Controls {
 		      UnaryOp("!", b => Not(b), BooleanType))
 
   abstract class Block
-  case class Trace(isExpr: Boolean, allowFixing: Boolean, isConditional: Boolean) extends Block
+  case class Trace(isExpr: Boolean, allowFixing: Boolean, isConditional: Boolean, amFindingJoin: Boolean) extends Block
   case object Unordered extends Block {
     override def toString: String = "unordered"
   }
@@ -571,6 +585,18 @@ private object Controls {
   def showInputDialog(gui: SynthesisGUI, msg: String): Option[String] = JOptionPane.showInputDialog(gui, msg) match {
     case null => None
     case s => Some(s)
+  }
+
+  def skipTrace(gui: SynthesisGUI, queryType: graphprog.Controller.QueryType) {
+    val restartOptions = Array[Object]("Restart", "Abort", "Cancel")
+    val restart = JOptionPane.showOptionDialog(gui, "Do you want to restart the same trace or abort and get a new input?", "Restart or abort?", JOptionPane.YES_NO_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE, null, restartOptions, restartOptions(2))
+    if (restart == 2)
+      return
+    val saveOptions = Array[Object]("Save", "Discard", "Cancel")
+    val save = JOptionPane.showOptionDialog(gui, "Do you want to save the changes you've made on this trace?", "Save changes?",  JOptionPane.YES_NO_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE, null, saveOptions, saveOptions(2))
+    if (save == 2)
+      return
+    gui.skipTrace(queryType, restart == 0, save == 0)
   }
 
 }
