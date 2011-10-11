@@ -24,11 +24,11 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
   def synthesize(input: List[(String, Value)]): Program = synthesizer.synthesize(input)
   def synthesize(trace: Trace): Program = synthesizer.synthesize(trace)
 
-  def updateDisplay(memory: Memory, stmts: List[Stmt], curStmt: Option[Stmt], layoutObjs: Boolean = true) = {
+  def updateDisplay(memory: Memory, stmts: List[Stmt], curStmt: Option[Stmt], layoutObjs: Boolean = true, failingStmt: Option[Stmt] = None) = {
     lastState = Some((memory, stmts, curStmt))
-    invokeAndWait{ gui.updateDisplay(Some(memory.clone), stmts, curStmt, layoutObjs) }  // Important: we clone the memory since the GUI operates on its data directly.
+    invokeAndWait{ gui.updateDisplay(Some(memory.clone), stmts, curStmt, layoutObjs, failingStmt) }  // Important: we clone the memory since the GUI operates on its data directly.
   }
-  def clearDisplay(stmts: List[Stmt]) = invokeAndWait{ gui.updateDisplay(None, stmts, None, false) }
+  def clearDisplay(stmts: List[Stmt]) = invokeAndWait{ gui.updateDisplay(None, stmts, None, false, None) }
 
   def getActions(possibilities: List[Action], amFixing: Boolean): ActionsInfo = {
     invokeAndWait{ gui.getActions(possibilities, amFixing) }
@@ -124,7 +124,7 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
     invokeLater{ gui.setCode(uifCode, Some(unseen)) }
     displayMessage("There must be a conditional at this point.  Please demonstrate the body, marking where the conditional ends.")
 
-    def getCode(firstStmtAfterBlock: Option[Stmt]): Code = Code(addBlock(code, (Some(followers.head), firstStmtAfterBlock), s => if (branch) If(cond, oldBody, Nil, s) else If(cond, s, Nil, oldBody)))
+    def getCode(firstStmtAfterBlock: Option[Stmt]): CodeInfo = CodeInfo(addBlock(code, (Some(followers.head), firstStmtAfterBlock), s => if (branch) If(cond, oldBody, Nil, s) else If(cond, s, Nil, oldBody)))
     // Walk through the followers, showing the user what they are and asking whether to continue or end the conditional
     followers.foldLeft((List[Stmt](), initMem.clone)){ case ((prevStmts, curMem), curStmt) => {
       val unseenBody = UnseenStmt()
@@ -153,7 +153,7 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
     firstIteration match {
       case Iterate(List((_, Nil))) => LoopInfo((curMemory, firstIteration, singleton(stmts).asInstanceOf[Loop]))  // If the first iteration is empty, do not execute the loop.
       case _ =>
-	val (allIterations, loop, finalMem) = ((firstIteration, synthesizer.executeLoopWithHelpFromUser(curMemory, stmts, false, false)): @unchecked) match {
+	val (allIterations, loop, finalMem) = ((firstIteration, synthesizer.executeLoopWithHelpFromUser(curMemory, stmts, false)): @unchecked) match {
 	  case (Iterate(i1 :: Nil), StmtInfo((Iterate(irest) :: Nil, (l: Loop) :: Nil, m))) => (Iterate(i1 :: irest), l, m)
 	  case (_, e: EndTrace) => return e
 	}
@@ -237,7 +237,7 @@ object Controller {
   protected[graphprog] case class StmtInfo(stmtInfo: (List[Action], List[Stmt], Memory)) extends StmtTraceFinalInfo with LoopIntermediateInfo
   protected[graphprog] case class ExprIntermediateInfo(exprInfo: (Expr, Memory)) extends ExprTraceIntermediateInfo
   protected[graphprog] case class ExprInfo(exprInfo: (Expr, Expr, Memory)) extends ExprTraceFinalInfo
-  protected[graphprog] case class Code(code: List[Stmt]) extends FixInfo with JoinInfo
+  protected[graphprog] case class CodeInfo(code: List[Stmt]) extends FixInfo with JoinInfo
   protected[graphprog] case object Fix extends ActionsInfo with StmtTraceIntermediateInfo with StmtTraceFinalInfo with ExprTraceIntermediateInfo with ExprTraceFinalInfo
   protected[graphprog] case object Step extends FixInfo
   protected[graphprog] case object Continue extends FixInfo

@@ -8,6 +8,7 @@ protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, priva
   import graphprog.lang.AST.{ Stmt, Value, If }
   import graphprog.lang.Printer
   import graphprog.Utils._
+  import Code._
 
   private case class ListData(stmt: Stmt, parent: Option[Stmt], displayStr: String, tooltipStr: Option[String], isExecutable: Boolean)
   private var elems: List[ListData] = Nil
@@ -15,6 +16,7 @@ protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, priva
   private var stmts: List[Stmt] = Nil
   private var curStmt: Option[Stmt] = None
   private var replacedStmts: List[Stmt] = Nil
+  private var failingStmt: Option[Stmt] = None
 
   private val printer = new Printer(Map.empty, true)
 
@@ -43,9 +45,10 @@ protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, priva
 
   override def getToolTipText(e: java.awt.event.MouseEvent): String = getIndexAtPoint(e.getPoint()).map{ i => elems(i).tooltipStr.getOrElse(null) }.getOrElse(null)
 
-  def setCode(stmts: List[Stmt], curStmt: Option[Stmt], replacementStmts: Option[Iterable[Stmt]] = None) = {
+  def setCode(stmts: List[Stmt], curStmt: Option[Stmt], replacementStmts: Option[Iterable[Stmt]] = None, failingStmt: Option[Stmt] = None) = {
     this.stmts = stmts
     this.curStmt = curStmt
+    this.failingStmt = failingStmt
     showCode(replacementStmts)
   }
 
@@ -74,14 +77,14 @@ protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, priva
 	replaceStmts(stmts)
       case _ => stmts
     }
-    def addStmts(s: Iterable[Stmt], parent: Option[Stmt], indent: String, isCurrent: Boolean): List[ListData] = {
-      def addStmt(s: Stmt, parent: Option[Stmt], indent: String, isCurrent: Boolean): List[ListData] = {
-	def doStmt(isCurrent: Boolean): List[ListData] = {
-	  def colorify(s: String): String = "<font color='red'>" + s + "</font>"
+    def addStmts(s: Iterable[Stmt], parent: Option[Stmt], indent: String, isCurrent: Boolean, isFailing: Boolean): List[ListData] = {
+      def addStmt(s: Stmt, parent: Option[Stmt], indent: String, isCurrent: Boolean, isFailing: Boolean): List[ListData] = {
+	def doStmt(isCurrent: Boolean, isFailing: Boolean): List[ListData] = {
+	  def colorify(s: String, color: String): String = "<font color='" + color + "'>" + s + "</font>"
 	  def makeElem(s: Stmt, isExecutable: Boolean, displayString: String, hoverString: Option[String] = None, sanitize: Boolean = true): ListData = {
 	    def htmlize(s: String): String = {
 	      val sanitizedStr = if (sanitize) sanitizeHTML(s) else s
-	      if (isCurrent) colorify(sanitizedStr) else sanitizedStr
+	      if (isCurrent) colorify(sanitizedStr, CUR_COLOR) else if (isFailing) colorify(sanitizedStr, FAILING_COLOR) else sanitizedStr
 	    }
 	    ListData(s, parent, htmlize(displayString), hoverString.map{ _.trim() }, isExecutable)
 	  }
@@ -89,11 +92,11 @@ protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, priva
 	    def stringOfCondition(s: Stmt, stringMaker: Stmt => String, htmlize: Boolean): String = {
 	      val str = if (htmlize) sanitizeHTML(stringMaker(s)) else stringMaker(s)
 	      (curStmt, replacementStmts) match {
-		case (Some(curStmt), None) if s eq curStmt => colorify(str)
+		case (Some(curStmt), None) if s eq curStmt => colorify(str, CUR_COLOR)
 		case _ => str
 	      }
 	    }
-	    val body = addStmts(b, Some(s), indent + "  ", isCurrent)
+	    val body = addStmts(b, Some(s), indent + "  ", isCurrent, isFailing)
 	    def getStartString(stringMaker: Stmt => String, htmlize: Boolean) = {
 	      val space = if (htmlize) "&nbsp;" else " "
 	      (if (htmlize) sanitizeHTML(indent + prefix) else indent + prefix) + (c match {
@@ -115,21 +118,24 @@ protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, priva
 	    case Conditional(c, b) => pathHelper("cond", s, Some(c), b)
 	    case Iterate(is) => (makeElem(s, false, indent + "iterate {") :: is.flatMap{ i => pathHelper("iteration", s, Some(i._1), i._2, indent + "  ") }) :+ makeElem(s, false, indent + "}")
 	    case If(c, b, ei, e) => pathHelper("if", s, Some(c), b) ++ ei.flatMap{ p => pathHelper("else if", s, Some(p._1), p._2) } ++ (if (e.nonEmpty) pathHelper("else", s, None, e) else Nil)
-	    case UnknownJoinIf(i, u) => addStmt(i, parent, indent, isCurrent) ++ (if (u.nonEmpty) pathHelper("unknown", s, None, u) else Nil)
+	    case UnknownJoinIf(i, u) => addStmt(i, parent, indent, isCurrent, isFailing) ++ (if (u.nonEmpty) pathHelper("unknown", s, None, u) else Nil)
 	    case Loop(c, b) => pathHelper("loop", s, Some(c), b)
 	    case UnorderedStmts(stmts) => pathHelper("unordered", s, None, stmts)
 	    case s => List(makeElem(s, true, indent + prettyStringOfStmt(s, printer), if (s.isInstanceOf[PossibilitiesHole]) Some(printer.stringOfStmt(s)) else None))
 	  }
 	}
+	def isTargetStmt(s: Stmt, target: Option[Stmt]) = target match {
+	  case Some(t) => s eq t
+	  case None => false
+	}
 	(curStmt, replacementStmts) match {
-	  case (Some(curStmt), Some(replacementStmts)) if s.eq(curStmt) => addStmts(replacementStmts, parent, indent, true)
-	  case (Some(curStmt), None) if s.eq(curStmt) => doStmt(true)
-	  case _ => doStmt(isCurrent)
+	  case (Some(curStmt), Some(replacementStmts)) if s.eq(curStmt) => addStmts(replacementStmts, parent, indent, true, isTargetStmt(s, failingStmt))
+	  case _ => doStmt(isCurrent || isTargetStmt(s, curStmt), isFailing || isTargetStmt(s, failingStmt))
 	}
       }
-      s.flatMap{ s => addStmt(s, parent, indent, isCurrent) }.toList
+      s.flatMap{ s => addStmt(s, parent, indent, isCurrent, isFailing) }.toList
     }
-    val items = addStmts(stmts, None, "", false).filterNot{ _ == Nil }
+    val items = addStmts(stmts, None, "", false, false).filterNot{ _ == Nil }
     def coalesceElses(l: List[ListData]): List[ListData] = l match {
       case x :: y :: rest => (x.displayStr, y.displayStr) match {
 	case (s1: String, s2: String) if s1.matches("(?:&nbsp;)*}") && s2.startsWith("else") => (x copy (displayStr = (s1 + " " + s2))) :: coalesceElses(rest)  // TODO: Probably won't work for elses with non-zero indent.
@@ -145,5 +151,12 @@ protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, priva
   def getCode(): (List[Stmt], Option[Stmt]) = (stmts, curStmt)
 
   private def sanitizeHTML(s: String) = s.replaceAll(" ", "&nbsp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+
+}
+
+private object Code {
+
+  val CUR_COLOR = "blue"
+  val FAILING_COLOR = "red"
 
 }

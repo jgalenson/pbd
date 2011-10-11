@@ -630,17 +630,18 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 
   private case class FixCode(reason: String, curStmt: Option[Stmt]) extends RuntimeException with FastException
   private case class PruneCode(curStmts: List[Stmt]) extends RuntimeException with FastException
-  private case class FixedCode(curStmt: Option[Stmt], newCode: Code) extends RuntimeException with FastException
+  private case class FixedCode(curStmt: Option[Stmt], newCode: CodeInfo) extends RuntimeException with FastException
   private case class SkipTrace(info: EndTrace, newStmts: IMap[Stmt, Stmt], newBlocks: IMap[Stmt, List[Stmt]]) extends RuntimeException with FastException
   // TODO: Remove asInstanceOfs
-  private def executeWithHelpFromUser(memory: Memory, origStmts: List[Stmt], pruneAfterUnseen: Boolean, amFixing: Boolean, otherBranch: Option[(Stmt, UnknownJoinIf)] = None): (List[Action], List[Stmt], Memory) = {
+  // We might have isFixing == true and failingStmt == None, for instance when there is no correct path on an input but we don't crash on a single statement (from long pruning).
+  private def executeWithHelpFromUser(memory: Memory, origStmts: List[Stmt], pruneAfterUnseen: Boolean, amFixing: Boolean, failingStmt: Option[Stmt], otherBranch: Option[(Stmt, UnknownJoinIf)] = None): (List[Action], List[Stmt], Memory) = {
     def updateDisplay(memory: Memory, curStmt: Option[Stmt], newStmts: IMap[Stmt, Stmt], newBlocks: IMap[Stmt, List[Stmt]], layoutObjs: Boolean = true) = {
       val code = getNewStmts(origStmts, newStmts, newBlocks)
       val displayCode = otherBranch match {  // Show the unknown join to the user.
 	case Some((target, UnknownJoinIf(i, _))) => addBlock(code, (Some(target), None), s => UnknownJoinIf(i, s))
 	case None => code
       }
-      controller.updateDisplay(memory, displayCode, curStmt, layoutObjs)
+      controller.updateDisplay(memory, displayCode, curStmt, layoutObjs, failingStmt)
     }
     var continue = false  // Whether the user has selected to continue.
     def doFixStep(memory: Memory, curStmt: Option[Stmt], newStmts: IMap[Stmt, Stmt], newBlocks: IMap[Stmt, List[Stmt]], diffInfo: Option[(Memory, Stmt, Value)]) {
@@ -653,7 +654,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	  controller.doFixStep(diffInfo, canDiverge = !otherBranch.isDefined) match {
 	    case Step => // Do nothing, which accepts the current choice.
 	    case Continue => continue = true
-	    case c: Code => throw new FixedCode(curStmt, c)
+	    case c: CodeInfo => throw new FixedCode(curStmt, c)
 	    case EndConditional => throw new RuntimeException
 	    case e: EndTrace => throw new SkipTrace(e, newStmts, newBlocks)
 	  }
@@ -716,7 +717,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	      assert(amFixing)
 	      updateDisplay(memory, Some(actualCurStmt), newStmts, newBlocks, false)
 	      controller.insertConditionalAtPoint(getNewStmts(origStmts, newStmts, newBlocks), uif, stmts.dropWhile{ _.ne(curStmt) }.map{ s => newStmts.getOrElse(s, s) }) match {
-		case c: Code => throw new FixedCode(None, c)
+		case c: CodeInfo => throw new FixedCode(None, c)
 		case e: EndTrace => throw new SkipTrace(e, newStmts, newBlocks)
 	      }
 	    case _ =>
@@ -818,7 +819,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 		      println(indent + shortPrinter.stringOfValue(result))
 		      (actions, result, newMem)  // We return actions for the action and not actions.head because actions.head could be wrong (e.g. could be x < y when we want a < b, and this would give us wrong values).
 		    case Fix if amFixing => controller.getFixInfo() match {
-		      case code: Code => throw new FixedCode(Some(actualCurStmt), code)
+		      case code: CodeInfo => throw new FixedCode(Some(actualCurStmt), code)
 		      case e: EndTrace => throw new SkipTrace(e, newStmts, newBlocks)
 		    }
 		    case Fix if !amFixing => throw new FixCode("you asked to change it", None)
@@ -954,14 +955,14 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
       doFixStep(finalMem, None, newStmts, newBlocks, None)
     (actions, getNewStmts(origStmts, newStmts, newBlocks), finalMem)
   }
-  protected[graphprog] def executeLoopWithHelpFromUser(memory: Memory, origStmts: List[Stmt], pruneAfterUnseen: Boolean, amFixing: Boolean, otherBranch: Option[(Stmt, UnknownJoinIf)] = None): LoopIntermediateInfo = {
+  protected[graphprog] def executeLoopWithHelpFromUser(memory: Memory, origStmts: List[Stmt], pruneAfterUnseen: Boolean): LoopIntermediateInfo = {
     try {
-      StmtInfo(executeWithHelpFromUser(memory, origStmts, pruneAfterUnseen, amFixing, otherBranch))
+      StmtInfo(executeWithHelpFromUser(memory, origStmts, pruneAfterUnseen, false, None))
     } catch {
       case SkipTrace(e: EndTrace, _, _) => e
     }
   }
-  private def getTraceWithHelpFromUser(code: List[Stmt], inputs: List[(String, Value)], pruneAfterUnseen: Boolean, amFixing: Boolean, otherBranch: Option[(Stmt, UnknownJoinIf)] = None): List[Stmt] = {
+  private def getTraceWithHelpFromUser(code: List[Stmt], inputs: List[(String, Value)], pruneAfterUnseen: Boolean, amFixing: Boolean, failingStmt: Option[Stmt], otherBranch: Option[(Stmt, UnknownJoinIf)] = None): List[Stmt] = {
     allInputs += inputs  // This might add duplicate inputs (when we re-do one to find a join) but comparing inputs for equality is a pain, since they're from different executions and so we can't just compare by ids.
     controller.clearScreen()
     println("We need another example to help us find your program.  " + getHoleInfo(code))
@@ -971,15 +972,15 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
       println("Aborting trace to " + reason + ".  We'll continue with this or another trace if necessary when this finishes.")
       val (newerCode, newInput) = getNextInput(newCode, Some(inputs))
       newInput match {
-	case Some(newInput) => return getTraceWithHelpFromUser(newerCode, newInput, pruneAfterUnseen, amFixing, otherBranch)
+	case Some(newInput) => return getTraceWithHelpFromUser(newerCode, newInput, pruneAfterUnseen, amFixing, failingStmt, otherBranch)
 	case None => return newerCode
       }
     }
     try {
       val mem = new Memory(inputs)
       if (amFixing)
-	controller.updateDisplay(mem, code, None)
-      val newCode = executeWithHelpFromUser(mem, code, pruneAfterUnseen, amFixing, otherBranch)._2
+	controller.updateDisplay(mem, code, None, failingStmt = failingStmt)
+      val newCode = executeWithHelpFromUser(mem, code, pruneAfterUnseen, amFixing, failingStmt, otherBranch)._2
       println("Thank you for giving us this trace.  We'll get to work now.")
       finishedInputs += inputs
       newCode
@@ -991,7 +992,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	  case Some(newInput) =>  // We found no legal join points before, so we re-execute the original branch we saw to find the exact join.
 	    println("Aborting trace to fill a conditional.  We'll continue with this or another trace if necessary when this finishes.")
 	    controller.displayMessage("Aborting trace to fill a conditional.  We'll continue with this or another trace if necessary when this finishes.")
-	    getTraceWithHelpFromUser(code, newInput, pruneAfterUnseen, amFixing, Some((realCurStmt, uif)))
+	    getTraceWithHelpFromUser(code, newInput, pruneAfterUnseen, amFixing, None, Some((realCurStmt, uif)))
 	  case None => throw new SolverError("Cannot find previous input that brings me to a branch of a conditional I've already seen.")
 	}
 	case _ =>
@@ -1011,7 +1012,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	  else
 	    getNextInput(nextCode, None)
 	newInput match {
-	  case Some(newInput) => getTraceWithHelpFromUser(finalCode, newInput, pruneAfterUnseen, amFixing, otherBranch)
+	  case Some(newInput) => getTraceWithHelpFromUser(finalCode, newInput, pruneAfterUnseen, amFixing, if (sameInput) failingStmt else None, otherBranch)
 	  case None => finalCode
 	}
     }
@@ -1195,11 +1196,11 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
       if (complete || inputs.isEmpty) {
 	checkProgram(furtherPrunedCode) match {
 	  case None => (furtherPrunedCode, complete)
-	  case Some((i, true)) => synthesizeRec(getTraceWithHelpFromUser(furtherPrunedCode, i, true, false))
+	  case Some((i, true)) => synthesizeRec(getTraceWithHelpFromUser(furtherPrunedCode, i, true, false, None))
 	  case Some((i, false)) => synthesizeRec(fixCode(furtherPrunedCode, "the displayed input fails the correctness condition", i, None))
 	}
       } else
-	synthesizeRec(getTraceWithHelpFromUser(furtherPrunedCode, inputs.get, true, false))
+	synthesizeRec(getTraceWithHelpFromUser(furtherPrunedCode, inputs.get, true, false, None))
     }
     println("Initial statements:\n" + shortPrinter.stringOfStmts(stmts))
     val (code, isFinished) = synthesizeRec(stmts)
@@ -1222,7 +1223,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     }
   }
   def synthesize(input: List[(String, Value)]): Program = {
-    val stmts = getTraceWithHelpFromUser(List(UnseenStmt()), input, false, false)
+    val stmts = getTraceWithHelpFromUser(List(UnseenStmt()), input, false, false, None)
     synthesize(input, stmts)
   }
 
@@ -1459,10 +1460,10 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     println(Console.RED + "**" + Console.RESET + "Please fix the program because " + reason + ".")
     // FIXME!!: Call resetPruning here?
     controller.clearScreen()
-    controller.updateDisplay(new Memory(input), code, None)
+    controller.updateDisplay(new Memory(input), code, None, failingStmt = failingStmt)
     controller.displayMessage("The current program is not complete because " + reason + ".  Please fix it so that we can continue.")
     numCodeFixes += 1
-    val fixedStmts = getTraceWithHelpFromUser(code, input, true, true)
+    val fixedStmts = getTraceWithHelpFromUser(code, input, true, true, failingStmt)
     println("Got fixed code:\n" + shortPrinter.stringOfStmts(fixedStmts, "  "))
     prunePossibilities(fixedStmts)
   }

@@ -86,12 +86,12 @@ class SynthesisGUI private (private val controller: Controller, private val help
 
   // Communication logic
 
-  def updateDisplay(memoryOpt: Option[Memory], stmts: List[Stmt], curStmt: Option[Stmt], layoutObjs: Boolean) {
+  def updateDisplay(memoryOpt: Option[Memory], stmts: List[Stmt], curStmt: Option[Stmt], layoutObjs: Boolean, failingStmt: Option[Stmt]) {
     memoryOpt match {
       case Some(memory) => canvas.updateDisplayWithMemory(memory, layoutObjs)
       case None => canvas.clear()
     }
-    setCode(stmts, curStmt)
+    setCode(stmts, curStmt, failingStmt = failingStmt)
     repaint()
   }
 
@@ -182,7 +182,7 @@ class SynthesisGUI private (private val controller: Controller, private val help
   // Called when we've found the join point for a conditional.
   protected[gui] def finishFixing(code: List[Stmt]) {
     controls.finishStmtTraceMode()
-    controller.setFixInfo(Code(code))
+    controller.setFixInfo(CodeInfo(code))
   }
   // Called when the user marks that a conditional has ended (but we don't necessarily know the join point yet).
   protected[gui] def endConditional() {
@@ -194,7 +194,7 @@ class SynthesisGUI private (private val controller: Controller, private val help
     controls.hideFixingControls()
   }
 
-  def setCode(stmts: List[Stmt], curStmt: Option[Stmt], replacementStmts: Option[Iterable[Stmt]] = None) = code.setCode(stmts, curStmt, replacementStmts)
+  def setCode(stmts: List[Stmt], curStmt: Option[Stmt], replacementStmts: Option[Iterable[Stmt]] = None, failingStmt: Option[Stmt] = None) = code.setCode(stmts, curStmt, replacementStmts, failingStmt)
 
   protected[gui] def setCurrentStmts(stmts: Iterable[Stmt]) = code.showCode(Some(stmts))
 
