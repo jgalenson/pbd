@@ -99,7 +99,7 @@ object GuiTest {
       val possibilities = possibilityMaker(mem)
       println("Possibilities are " + iterableToString(possibilities, " or ", { s: Stmt => printer.stringOfStmt(s) }))
       controller.updateDisplay(mem, Nil, Some(Null))
-      val actions = controller.getActions(possibilities, false).get
+      val actions = controller.getActions(possibilities, false).asInstanceOf[Actions].actions
       println("Got " + iterableToString(actions, " or ", (a: Action) => printer.stringOfAction(a)))
       controller.cleanup()
     }
@@ -184,11 +184,11 @@ object GuiTest {
       val unseen = UnseenStmt()
       controller.updateDisplay(mem, List(unseen), Some(unseen))
       controller.getStmtTrace(mem, false) match {
-	case Some((actions, stmts, memory)) =>
+	case StmtInfo((actions, stmts, memory)) =>
 	  println("Actions:\n" + printer.stringOfStmts(actions))
 	  println("Stmts:\n" + printer.stringOfStmts(stmts))
 	  println("Mem: " + printer.stringOfMemory(memory))
-	case None => println("None")
+	case o => println(o)
       }
       controller.cleanup()
     }
