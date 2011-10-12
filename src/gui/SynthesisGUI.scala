@@ -211,6 +211,14 @@ class SynthesisGUI private (private val controller: Controller, private val help
   protected[gui] def getCode() = code.getCode()
 
   protected[gui] def skipTrace(queryType: QueryType, sameInput: Boolean, saveChanges: Boolean) {
+    queryType match {
+      case Actions => controls.hideHoleControls()
+      case ExprTrace => controls.finishExprTraceMode()
+      case StmtTrace => 
+	hideTraceControls()
+	controls.discardAllEdits()
+      case FixType => controls.hideFixingControls()
+    }
     controller.skipTrace(queryType, sameInput, saveChanges)
   }
 

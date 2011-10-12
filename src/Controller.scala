@@ -178,7 +178,7 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
 
   def displayMessage(msg: String) = gui.displayMessage(msg)
 
-  def clearScreen() = gui.clear()
+  def clearScreen() = invokeLater { gui.clear() }
 
   def cleanup() = gui.dispose()
 

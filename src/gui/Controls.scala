@@ -138,7 +138,7 @@ private class Menu(private val synthesisGUI: SynthesisGUI, private val controls:
 
     setupControl(endConditionalWhenFixing, fixProgram, _ => synthesisGUI.endConditional(), KeyEvent.VK_E)
 
-    setupControl(new JMenuItem("Skip trace"), fixProgram, _ => skipTrace(synthesisGUI, FixType), KeyEvent.VK_S)
+    setupControl(new JMenuItem("Skip trace"), fixProgram, _ => skipTrace(synthesisGUI, if (hole.isEnabled) Actions else FixType), KeyEvent.VK_S)  // When encountering a hole when fixing, both menus are available, but we are waiting for an action to be chosen.
 
     fixProgram.setEnabled(false)
     add(fixProgram)
@@ -344,11 +344,11 @@ protected[gui] class Controls(private val synthesisGUI: SynthesisGUI, private va
     startBlock(Trace(isExpr, allowFixing, isConditional, amFindingJoin))
   }
   def finishExprTraceMode() = {
-    assert(curBlocks.headOption match { case Some(Trace(true, _, _, _)) => true case _ => false })
+    assert(curBlocks.headOption match { case Some(Trace(true, _, _, _)) => true case _ => false }, curBlocks.headOption)
     endBlock()
   }
   def finishStmtTraceMode() = {
-    assert(curBlocks.headOption match { case Some(Trace(false, _, _, _)) => true case _ => false })
+    assert(curBlocks.headOption match { case Some(Trace(false, _, _, _)) => true case _ => false }, curBlocks.headOption)
     endBlock(true)
   }
   def showTraceControls() {
