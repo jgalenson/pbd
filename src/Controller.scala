@@ -24,11 +24,11 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
   def synthesize(input: List[(String, Value)]): Program = synthesizer.synthesize(input)
   def synthesize(trace: Trace): Program = synthesizer.synthesize(trace)
 
-  def updateDisplay(memory: Memory, stmts: List[Stmt], curStmt: Option[Stmt], layoutObjs: Boolean = true, failingStmt: Option[Stmt] = None) = {
+  def updateDisplay(memory: Memory, stmts: List[Stmt], curStmt: Option[Stmt], layoutObjs: Boolean = true, breakpoints: List[Breakpoint] = Nil, failingStmt: Option[Stmt] = None) = {
     lastState = Some((memory, stmts, curStmt))
-    invokeAndWait{ gui.updateDisplay(Some(memory.clone), stmts, curStmt, layoutObjs, failingStmt) }  // Important: we clone the memory since the GUI operates on its data directly.
+    invokeAndWait{ gui.updateDisplay(Some(memory.clone), stmts, curStmt, layoutObjs, breakpoints, failingStmt) }  // Important: we clone the memory since the GUI operates on its data directly.
   }
-  def clearDisplay(stmts: List[Stmt]) = invokeAndWait{ gui.updateDisplay(None, stmts, None, false, None) }
+  def clearDisplay(stmts: List[Stmt]) = invokeAndWait{ gui.updateDisplay(None, stmts, None, false, Nil, None) }
 
   def getActions(possibilities: List[Action], amFixing: Boolean): ActionsInfo = {
     invokeAndWait{ gui.getActions(possibilities, amFixing) }
@@ -172,6 +172,10 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
     }
   }
 
+  def addBreakpoint(breakpoint: Breakpoint) = synthesizer.addBreakpoint(breakpoint)
+
+  def removeBreakpoint(line: Stmt) = synthesizer.removeBreakpoint(line)
+
   def displayMessage(msg: String) = gui.displayMessage(msg)
 
   def clearScreen() = gui.clear()
@@ -251,5 +255,9 @@ object Controller {
   protected[graphprog] case object StmtTrace extends QueryType
   protected[graphprog] case object ExprTrace extends QueryType
   protected[graphprog] case object FixType extends QueryType
+
+  protected[graphprog] abstract class Breakpoint { val line: Stmt }
+  protected[graphprog] case class NormalBreakpoint(line: Stmt) extends Breakpoint
+  protected[graphprog] case class ConditionalBreakpoint(line: Stmt, condition: Expr) extends Breakpoint
 
 }

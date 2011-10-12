@@ -86,12 +86,12 @@ class SynthesisGUI private (private val controller: Controller, private val help
 
   // Communication logic
 
-  def updateDisplay(memoryOpt: Option[Memory], stmts: List[Stmt], curStmt: Option[Stmt], layoutObjs: Boolean, failingStmt: Option[Stmt]) {
+  def updateDisplay(memoryOpt: Option[Memory], stmts: List[Stmt], curStmt: Option[Stmt], layoutObjs: Boolean, breakpoints: List[Breakpoint] = Nil, failingStmt: Option[Stmt]) {
     memoryOpt match {
       case Some(memory) => canvas.updateDisplayWithMemory(memory, layoutObjs)
       case None => canvas.clear()
     }
-    setCode(stmts, curStmt, failingStmt = failingStmt)
+    setCode(stmts, curStmt, None, breakpoints, failingStmt)
     repaint()
   }
 
@@ -194,7 +194,7 @@ class SynthesisGUI private (private val controller: Controller, private val help
     controls.hideFixingControls()
   }
 
-  def setCode(stmts: List[Stmt], curStmt: Option[Stmt], replacementStmts: Option[Iterable[Stmt]] = None, failingStmt: Option[Stmt] = None) = code.setCode(stmts, curStmt, replacementStmts, failingStmt)
+  def setCode(stmts: List[Stmt], curStmt: Option[Stmt], replacementStmts: Option[Iterable[Stmt]] = None, breakpoints: List[Breakpoint] = Nil, failingStmt: Option[Stmt] = None) = code.setCode(stmts, curStmt, replacementStmts, breakpoints, failingStmt)
 
   protected[gui] def setCurrentStmts(stmts: Iterable[Stmt]) = code.showCode(Some(stmts))
 
@@ -213,6 +213,10 @@ class SynthesisGUI private (private val controller: Controller, private val help
   protected[gui] def skipTrace(queryType: QueryType, sameInput: Boolean, saveChanges: Boolean) {
     controller.skipTrace(queryType, sameInput, saveChanges)
   }
+
+  protected[gui] def addBreakpoint(breakpoint: Breakpoint) = controller.addBreakpoint(breakpoint)
+
+  protected[gui] def removeBreakpoint(line: Stmt) = controller.removeBreakpoint(line)
 
   protected[gui] def addEdit(e: javax.swing.undo.UndoableEdit) = controls.addEdit(e)
 
@@ -241,5 +245,9 @@ object SynthesisGUI {
 
   def showError(owner: java.awt.Component, error: String) = JOptionPane.showMessageDialog(owner, error, error, JOptionPane.ERROR_MESSAGE)
   def showMessage(owner: java.awt.Component, msg: String, title: String) = JOptionPane.showMessageDialog(owner, msg, title, JOptionPane.INFORMATION_MESSAGE)
+  def showInputDialog(gui: SynthesisGUI, msg: String): Option[String] = JOptionPane.showInputDialog(gui, msg) match {
+    case null => None
+    case s => Some(s)
+  }
 
 }

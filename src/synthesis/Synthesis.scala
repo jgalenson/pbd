@@ -33,6 +33,10 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
   private val origHoles = Map.empty[Stmt, PossibilitiesHole]
   private val enteredActions = Map.empty[PossibilitiesHole, ListBuffer[(Memory, List[Action])]]
   //private val conditionEvidence = Map.empty[UnseenExpr, List[(Value, Memory)]]
+  private var breakpoints = List.empty[Breakpoint]
+  private var breakpointsToAdd = List.empty[Breakpoint]
+  private var breakpointsToRemove = List.empty[Stmt]
+
   private var numUnseensFilled = 0
   private var numDisambiguations = 0
   private var numCodeFixes = 0
@@ -641,7 +645,11 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	case Some((target, UnknownJoinIf(i, _))) => addBlock(code, (Some(target), None), s => UnknownJoinIf(i, s))
 	case None => code
       }
-      controller.updateDisplay(memory, displayCode, curStmt, layoutObjs, failingStmt)
+      val actualBreakpoints = breakpoints map { breakpoint => newStmts.get(breakpoint.line) match {
+	case Some(newStmt) => refreshBreakpointLine(breakpoint, newStmt)
+	case None => breakpoint
+      } }
+      controller.updateDisplay(memory, displayCode, curStmt, layoutObjs, actualBreakpoints, failingStmt)
     }
     var continue = false  // Whether the user has selected to continue.
     def doFixStep(memory: Memory, curStmt: Option[Stmt], newStmts: IMap[Stmt, Stmt], newBlocks: IMap[Stmt, List[Stmt]], diffInfo: Option[(Memory, Stmt, Value)]) {
@@ -712,6 +720,32 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	  //println("Executing " + shortPrinter.stringOfStmt(actualCurStmt))
 	  def updateDisplayShort(layoutObjs: Boolean = true) = updateDisplay(memory, Some(actualCurStmt), newStmts, newBlocks, layoutObjs)
 	  def doFixStepShort(diffInfo: Option[(Memory, Stmt, Value)]) = doFixStep(memory, Some(actualCurStmt), newStmts, newBlocks, diffInfo)
+	  // Handle breakpoints
+	  breakpointsToAdd foreach { breakpoint => {
+	    val origStmts = newStmts.filter{ _._2 eq breakpoint.line }.map{ _._1 }.toList
+	    breakpoints :+= { origStmts match {
+	      case Nil => breakpoint
+	      case origStmt :: Nil => refreshBreakpointLine(breakpoint, origStmt)
+	      case _ => throw new RuntimeException("Unexpected newStmts")
+	    } }
+	  } }
+	  breakpointsToAdd = Nil
+	  breakpointsToRemove foreach { line => {
+	    val origStmts = newStmts.filter{ _._2 eq line }.map{ _._1 }.toList
+	    val origStmt = origStmts match {
+	      case Nil => line
+	      case origStmt :: Nil => origStmt
+	      case _ => throw new RuntimeException("Unexpected newStmts")
+	    }
+	    breakpoints = breakpoints filterNot { _.line eq origStmt }
+	  } }
+	  breakpointsToRemove = Nil
+	  if (breakpoints exists { _ match {
+	    case NormalBreakpoint(s) => curStmt eq s
+	    case ConditionalBreakpoint(s, c) => curStmt.eq(s) && (try { defaultExecutor.evaluateBoolean(memory, c) } catch { case _ => controller.displayMessage("Evaluation of this breakpoint's condition crashed."); true })  // TODO: Is this how we want to handle this case?
+	  } })
+	    continue = false
+	  // See if we're at the point where we need to step through the already-seen branch of a conditional.
 	  otherBranch match {
 	    case Some((targetStmt, uif)) if targetStmt.eq(actualCurStmt) =>  // I don't need to compare memories since all previous times at this point I've taken the same branch (the original one).
 	      assert(amFixing)
@@ -722,6 +756,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	      }
 	    case _ =>
 	  }
+	  // Handle the actual statement
 	  actualCurStmt match {
 	    case curHole @ PossibilitiesHole(possibilities) =>
 	      def updateHoleMaps(newStmt: Stmt, actions: List[Action], userEntered: Boolean) {
@@ -965,6 +1000,9 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
   private def getTraceWithHelpFromUser(code: List[Stmt], inputs: List[(String, Value)], pruneAfterUnseen: Boolean, amFixing: Boolean, failingStmt: Option[Stmt], otherBranch: Option[(Stmt, UnknownJoinIf)] = None): List[Stmt] = {
     allInputs += inputs  // This might add duplicate inputs (when we re-do one to find a join) but comparing inputs for equality is a pain, since they're from different executions and so we can't just compare by ids.
     controller.clearScreen()
+    breakpoints = Nil
+    breakpointsToAdd = Nil
+    breakpointsToRemove = Nil
     println("We need another example to help us find your program.  " + getHoleInfo(code))
     println("Please help us finish this trace.  We currently have the following program:\n" + longPrinter.stringOfProgram(Program(name, typ, inputTypes, functions, objectTypes, code)))
     print(longPrinter.stringOfTrace(Trace(name, typ, inputs, functions, objectTypes, Nil)))
@@ -978,8 +1016,10 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     }
     try {
       val mem = new Memory(inputs)
-      if (amFixing)
-	controller.updateDisplay(mem, code, None, failingStmt = failingStmt)
+      if (amFixing) {
+	assert(breakpoints.isEmpty)
+	controller.updateDisplay(mem, code, None, true, Nil, failingStmt)
+      }
       val newCode = executeWithHelpFromUser(mem, code, pruneAfterUnseen, amFixing, failingStmt, otherBranch)._2
       println("Thank you for giving us this trace.  We'll get to work now.")
       finishedInputs += inputs
@@ -1458,9 +1498,9 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 
   private def fixCode(code: List[Stmt], reason: String, input: List[(String, Value)], failingStmt: Option[Stmt]): List[Stmt] = {
     println(Console.RED + "**" + Console.RESET + "Please fix the program because " + reason + ".")
-    // FIXME!!: Call resetPruning here?
+    // TODO/FIXME: Call resetPruning here?
     controller.clearScreen()
-    controller.updateDisplay(new Memory(input), code, None, failingStmt = failingStmt)
+    controller.updateDisplay(new Memory(input), code, None, true, Nil, failingStmt)
     controller.displayMessage("The current program is not complete because " + reason + ".  Please fix it so that we can continue.")
     numCodeFixes += 1
     val fixedStmts = getTraceWithHelpFromUser(code, input, true, true, failingStmt)
@@ -1561,6 +1601,21 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	iteratorExecutor.executeNext(mem)
     } }
     iteratorExecutor
+  }
+
+  protected[graphprog] def addBreakpoint(breakpoint: Breakpoint) = {
+    breakpointsToAdd :+= breakpoint
+    breakpointsToRemove = breakpointsToRemove filterNot { _ eq breakpoint.line }  // Make sure the add takes precedence over any previous removes.
+  }
+
+  protected[graphprog] def removeBreakpoint(line: Stmt) = {
+    breakpointsToRemove :+= line
+    breakpointsToAdd = breakpointsToAdd filterNot { _.line eq line }  // Make sure the remove takes precedence over any previous adds.
+  }
+
+  private def refreshBreakpointLine(breakpoint: Breakpoint, newLine: Stmt): Breakpoint = breakpoint match {
+    case _: NormalBreakpoint => NormalBreakpoint(newLine)
+    case ConditionalBreakpoint(_, c) => ConditionalBreakpoint(newLine, c)
   }
 
 }

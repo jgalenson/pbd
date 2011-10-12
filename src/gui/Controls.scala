@@ -6,6 +6,7 @@ import graphprog.lang.AST.Program
 import graphprog.lang.Compiler.parseOpt
 import graphprog.gui.{ Prog, BinaryOp, UnaryOp }
 import graphprog.gui.SynthesisGUI
+import graphprog.gui.SynthesisGUI.showInputDialog
 import graphprog.Controller._
 import graphprog.Utils._
 
@@ -580,11 +581,6 @@ private object Controls {
   }
   case class Loop(seenCondition: Boolean) extends BlockWithCondition {
     override def toString: String = "iteration"
-  }
-
-  def showInputDialog(gui: SynthesisGUI, msg: String): Option[String] = JOptionPane.showInputDialog(gui, msg) match {
-    case null => None
-    case s => Some(s)
   }
 
   def skipTrace(gui: SynthesisGUI, queryType: graphprog.Controller.QueryType) {

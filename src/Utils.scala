@@ -88,4 +88,7 @@ object Utils {
     control
   }
 
+  class NotImplementedError extends Error
+  def TODO: Nothing = throw new NotImplementedError
+
 }

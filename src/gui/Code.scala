@@ -8,6 +8,7 @@ protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, priva
   import graphprog.lang.AST.{ Stmt, Value, If }
   import graphprog.lang.Printer
   import graphprog.Utils._
+  import graphprog.Controller.{ Breakpoint, NormalBreakpoint, ConditionalBreakpoint }
   import Code._
 
   private case class ListData(stmt: Stmt, parent: Option[Stmt], displayStr: String, tooltipStr: Option[String], isExecutable: Boolean)
@@ -17,23 +18,79 @@ protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, priva
   private var curStmt: Option[Stmt] = None
   private var replacedStmts: List[Stmt] = Nil
   private var failingStmt: Option[Stmt] = None
+  private var breakpoints: List[Breakpoint] = Nil
 
   private val printer = new Printer(Map.empty, true)
 
   def this(synthesisGUI: SynthesisGUI) = this(synthesisGUI, new DefaultListModel)
 
-  setCellRenderer(new DefaultListCellRenderer {
-    import java.awt.Component
-    import javax.swing._
-    override def getListCellRendererComponent(list: JList, value: Object, index: Int, isSelected: Boolean, cellHasFocus: Boolean): Component = {
-      super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus)
-      val str = value match {
-	case d: ListData => d.displayStr
+  private def init() {
+    setCellRenderer(new DefaultListCellRenderer {
+      import java.awt.Component
+      import javax.swing._
+      override def getListCellRendererComponent(list: JList, value: Object, index: Int, isSelected: Boolean, cellHasFocus: Boolean): Component = {
+	super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus)
+	val str = value match {
+	  case d: ListData => d.displayStr
+	}
+	setText("<html>" + str + "</html>")
+	return this
       }
-      setText("<html>" + str + "</html>")
-      return this
-    }
-  })
+    })
+
+    import java.awt.event.{ MouseAdapter, MouseEvent }
+    addMouseListener(new MouseAdapter {
+      import javax.swing.{ JPopupMenu, JMenuItem }
+      import graphprog.lang.Compiler.parseOpt
+      import graphprog.gui.SynthesisGUI.{ showInputDialog, showError }
+      import graphprog.lang.AST.Expr
+
+      private var cur: Option[ListData] = None
+
+      private val popupMenu = new JPopupMenu
+      setupControl(new JMenuItem("Add breakpoint"), popupMenu, _ => addBreakpoint(NormalBreakpoint(cur.get.stmt)))
+      setupControl(new JMenuItem("Add conditional breakpoint"), popupMenu, _ => addConditionalBreakpoint())
+      private val removeBreakpoint = new JMenuItem("Remove breakpoint")
+      setupControl(removeBreakpoint, popupMenu, _ => removeBreakpoint(cur.get.stmt))
+
+      private def addConditionalBreakpoint() {
+	showInputDialog(synthesisGUI, "Enter condition") foreach { str => parseOpt(str) match {
+	  case Some((c: Expr) :: Nil) => addBreakpoint(ConditionalBreakpoint(cur.get.stmt, c))
+	  case _ => showError(synthesisGUI, "Please enter a single expression.")
+	} }
+      }
+
+      private def addBreakpoint(breakpoint: Breakpoint) {
+	breakpoints :+= breakpoint  // Add it to our list since otherwise we might not get notified of it immediately.
+	synthesisGUI.addBreakpoint(breakpoint)
+      }
+
+      private def removeBreakpoint(line: Stmt) {
+	breakpoints = breakpoints filterNot {_.line eq line }  // Remove it from our list since otherwise we might not get notified immediately.
+	synthesisGUI.removeBreakpoint(line)
+      }
+
+      override def mousePressed(e: MouseEvent) = maybeShowPopup(e)
+      override def mouseReleased(e: MouseEvent) = maybeShowPopup(e)
+      private def maybeShowPopup(e: MouseEvent) {
+	if (e.isPopupTrigger()) {
+	  val curIndex = getIndexAtPoint(e.getPoint())
+	  curIndex match {
+	    case Some(i) => setSelectedIndex(i)
+	    case None => clearSelection()
+	  }
+	  cur = curIndex map { i => elems(i) }
+	  cur match {
+	    case Some(cur) =>
+	      removeBreakpoint.setEnabled(breakpoints.exists{ _.line eq cur.stmt })
+	      popupMenu.show(e.getComponent(), e.getX(), e.getY())
+	    case _ =>
+	  }
+	}
+      }
+    })
+  }
+  init()
 
   private def getIndexAtPoint(point: java.awt.Point): Option[Int] = {
     val index = locationToIndex(point)
@@ -45,10 +102,11 @@ protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, priva
 
   override def getToolTipText(e: java.awt.event.MouseEvent): String = getIndexAtPoint(e.getPoint()).map{ i => elems(i).tooltipStr.getOrElse(null) }.getOrElse(null)
 
-  def setCode(stmts: List[Stmt], curStmt: Option[Stmt], replacementStmts: Option[Iterable[Stmt]] = None, failingStmt: Option[Stmt] = None) = {
+  def setCode(stmts: List[Stmt], curStmt: Option[Stmt], replacementStmts: Option[Iterable[Stmt]] = None, breakpoints: List[Breakpoint] = Nil, failingStmt: Option[Stmt] = None) = {
     this.stmts = stmts
     this.curStmt = curStmt
     this.failingStmt = failingStmt
+    this.breakpoints = breakpoints
     showCode(replacementStmts)
   }
 
