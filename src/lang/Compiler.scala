@@ -1,7 +1,7 @@
 package graphprog.lang
 
 object Compiler {
-
+  import scala.collection.mutable.{ Map => MMap, HashMap => MHashMap, Stack }
   import AST._
   import scala.util.parsing.combinator._
 
@@ -65,16 +65,36 @@ object Compiler {
 
     lazy val action: PackratParser[Action] =
       lval ~ ":=" ~ expr ^^ { case l~_~r => Assign(l, r) } |
-      expr
+      expr 
 
     lazy val actionList: PackratParser[List[Action]] =
       repsep(action, "\n")
 
+
+    lazy val field_def: PackratParser[String] = 
+      "field" ~ identifier ~ ":" ~ identifier ^^ { case _ => "a field" }
+
+    lazy val field_list: PackratParser[String] = 
+      repsep(field_def, ";") ~ opt(";") ^^ { case _ => "a group of fields"}
+      
+      
+    lazy val class_def: PackratParser[ObjectType] =
+      "class" ~ identifier ~"{" ~ repsep(field_list, "\n") ~ "}" ^^ { case _ => ObjectType("") } // MMap.empty[String, Value]) }
+
+    lazy val classList: PackratParser[List[Type]] = 
+      repsep(class_def, "\n") ^^ { case _ => List[ObjectType]()}
+
     def parse(text: String) = parseAll(actionList, text)
+
+    def parseClasses(text: String) = parseAll(classList, text)
+
   }
 
   protected[graphprog] def parse(text: String): List[Action] = {
     TraceCompiler.parse(text).get
+  }
+  protected[graphprog] def parseClasses(text: String): List[Type] = {
+    TraceCompiler.parseClasses(text).get
   }
 
   protected[graphprog] def parseOpt(text: String): Option[List[Action]] = {
