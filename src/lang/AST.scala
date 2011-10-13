@@ -14,6 +14,7 @@ object AST {
   case object StringType extends PrimitiveType
   sealed trait HeapType extends Type
   case class ArrayType(t: Type) extends HeapType
+  //We use name based typing, not structural
   case class ObjectType(name: String) extends HeapType
   case object GenericType extends Type
 
