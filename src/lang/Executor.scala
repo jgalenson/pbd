@@ -5,7 +5,7 @@ import ASTUtils._
 import graphprog.Utils._
 import scala.annotation.tailrec
 
-class Executor(private val functions: Map[String, Program], private val printer: Printer, private val holeHandler: (Memory, Hole) => Stmt = Executor.errorOnHole, private val shouldPrint: Boolean = false) {
+class Executor(private val functions: Map[String, Program], private val printer: Printer, private val holeHandler: (Memory, Hole) => Stmt = Executor.errorOnHole, private val shouldPrint: Boolean = false) extends Serializable {
 
   import Executor.ExecuteError
   import scala.collection.immutable.Map

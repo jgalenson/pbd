@@ -14,12 +14,12 @@ object RBTree {
   import annotation.tailrec
 
   def main(args: Array[String]) {
-    parseCommandLine(args)
+    val options = parseCommandLine(args)
     //showRandomTree(15)
     //testExecute()
-    synthesizeLeftRotate()
-    //synthesizeTreeInsert()
-    //synthesizeRBInsert()
+    synthesizeLeftRotate(options)
+    //synthesizeTreeInsert(options)
+    //synthesizeRBInsert(options)
   }
 
   // Red is 0, Black is 1.  -1 is undefined for non-RB trees.
@@ -130,17 +130,17 @@ object RBTree {
 
   val printer = new Printer(printHelpers, false)
 
-  def test(trace: Trace, generator: Option[Double => List[(String, Value)]], fieldLayouts: Map[String, List[List[String]]]) {
+  def test(trace: Trace, generator: Option[Double => List[(String, Value)]], fieldLayouts: Map[String, List[List[String]]], options: Options) {
     try {
-      val result = synthesize(trace, makeSynthesizerFromTrace(trace, printHelpers, generator, None, None, treeComparator) _, trace.functions, trace.objectTypes, treeComparator, fieldLayouts, treeLayout)
+      val result = synthesize(trace, makeSynthesizerFromTrace(trace, printHelpers, generator, None, None, treeComparator) _, trace.functions, trace.objectTypes, treeComparator, fieldLayouts, treeLayout, options)
       println("Result:\n" + printer.stringOfProgram(result))
     } catch {
       case e => e.printStackTrace
     }
   }
-  def test(name: String, typ: Type, inputs: List[(String, Value)], generator: Option[Double => List[(String, Value)]], precondition: Option[Map[String, Value] => Boolean], postcondition: Option[(Map[String, Value], Map[String, Value], Value) => Boolean], functions: Map[String, Program], objectTypes: Map[String, List[(String, Type)]], fieldLayouts: Map[String, List[List[String]]]) {
+  def test(name: String, typ: Type, inputs: List[(String, Value)], generator: Option[Double => List[(String, Value)]], precondition: Option[Map[String, Value] => Boolean], postcondition: Option[(Map[String, Value], Map[String, Value], Value) => Boolean], functions: Map[String, Program], objectTypes: Map[String, List[(String, Type)]], fieldLayouts: Map[String, List[List[String]]], options: Options) {
     try {
-      val result = synthesize(inputs, makeSynthesizer(name, typ, graphprog.lang.Typer.typeOfInputs(inputs), functions, objectTypes, printHelpers, generator, precondition, postcondition, treeComparator) _, functions, objectTypes, treeComparator, fieldLayouts, treeLayout)
+      val result = synthesize(inputs, makeSynthesizer(name, typ, graphprog.lang.Typer.typeOfInputs(inputs), functions, objectTypes, printHelpers, generator, precondition, postcondition, treeComparator) _, functions, objectTypes, treeComparator, fieldLayouts, treeLayout, options)
       println("Result:\n" + printer.stringOfProgram(result))
     } catch {
       case e => e.printStackTrace
@@ -207,7 +207,7 @@ object RBTree {
 
   }
 
-  def synthesizeLeftRotate() {
+  def synthesizeLeftRotate(options: Options) {
 
     val leftRotateGenerator = Some( (_: Double) => {
       @tailrec def tryGen(): (Object, Object) = {
@@ -249,12 +249,12 @@ object RBTree {
       Assign(FieldAccess("y", "left"), "x"),
       Assign(FieldAccess("x", "parent"), "y"),
       LiteralExpr(Call("checkTreeInvariant", List(FieldAccess("tree", "root"))))
-    )), leftRotateGenerator, btreeFieldLayout)*/
-    test("leftRotate", UnitType, List(("tree" -> tree), ("x" -> x)), leftRotateGenerator, leftRotateFilter, Some(leftRotatePostcondition), mapOfPrograms(checkTreeInvariantProgram), btreeTypes, btreeFieldLayout)
+    )), leftRotateGenerator, btreeFieldLayout, options)*/
+    test("leftRotate", UnitType, List(("tree" -> tree), ("x" -> x)), leftRotateGenerator, leftRotateFilter, Some(leftRotatePostcondition), mapOfPrograms(checkTreeInvariantProgram), btreeTypes, btreeFieldLayout, options)
 
   }
 
-  def synthesizeTreeInsert() {
+  def synthesizeTreeInsert(options: Options) {
 
     val treeInsertGenerator = Some((_: Double) => {
       val tree = genBinaryTree()
@@ -292,11 +292,11 @@ object RBTree {
 	Conditional(LT(FieldAccess("z", "value"), FieldAccess("y", "value")), List(Assign(FieldAccess("y", "left"), "z")))
       )),
       LiteralExpr(Call("checkTreeInvariant", List(FieldAccess("tree", "root"))))
-    )), treeInsertGenerator, btreeFieldLayout)
+    )), treeInsertGenerator, btreeFieldLayout, options)
 
   }
 
-  def synthesizeRBInsert() {
+  def synthesizeRBInsert(options: Options) {
 
     val rbInsertGenerator = Some((size: Double) => {
       val tree = genRedBlackTree((size * 20).toInt)
@@ -351,7 +351,7 @@ object RBTree {
       Assign(FieldAccess(FieldAccess("tree", "root"), "color"), "black"),
       LiteralExpr(Call("checkTreeInvariant", List(FieldAccess("tree", "root")))),
       LiteralExpr(Call("checkRedBlackInvariant", List(FieldAccess("tree", "root"))))
-    )), rbInsertGenerator, rbtreeFieldLayout)
+    )), rbInsertGenerator, rbtreeFieldLayout, options)
 
   }
   
@@ -475,8 +475,8 @@ object RBTree {
 
   val allPrograms = Map.empty ++ List(("leftRotate" -> leftRotateProgram), ("rightRotate" -> rightRotateProgram), ("checkRedBlackInvariant" -> checkRedBlackInvariantProgram), ("checkTreeInvariant" -> checkTreeInvariantProgram), ("treeInsert" -> treeInsertProgram), ("rbInsert" -> rbInsertProgram), ("grandparent" -> grandparentProgram))
 
-  def showRandomTree(size: Int) {
-    val controller = new Controller(makeSynthesizer("", UnitType, Nil, Map.empty, Map.empty, objectComparators = treeComparator), Map.empty, Map.empty, treeComparator, rbtreeFieldLayout, treeLayout)
+  def showRandomTree(size: Int, options: Options) {
+    val controller = new Controller(makeSynthesizer("", UnitType, Nil, Map.empty, Map.empty, objectComparators = treeComparator), Map.empty, Map.empty, treeComparator, rbtreeFieldLayout, treeLayout, options)
     val mem = new Memory(List("tree" -> genRedBlackTree(size)))
     controller.updateDisplay(mem, Nil, Some(Null))
     controller.getStmtTrace(mem, false)

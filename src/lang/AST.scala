@@ -110,7 +110,7 @@ object AST {
 
   /* Helper classes */
 
-  class Memory(val mem: Stack[MMap[String, Value]]) {
+  class Memory(val mem: Stack[MMap[String, Value]]) extends Serializable {
 
     def this(m: MMap[String, Value]) = this(Stack[MMap[String, Value]](m))
     def this(l: TraversableOnce[(String, Value)]) = this(MHashMap.empty ++ l)

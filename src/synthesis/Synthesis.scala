@@ -5,7 +5,7 @@ import graphprog.Controller
 import scala.collection.immutable.{ Map => IMap }
 
 // The postcondition takes (initial arguments, memory at end of program, return value).  Comparing initial and final values may cause problems as they have the same ids.
-class Synthesis(private val controller: Controller, name: String, typ: Type, private val inputTypes: List[(String, Type)], private val functions: IMap[String, Program], private val objectTypes: IMap[String, List[(String, Type)]], private val printHelpers: PartialFunction[String, Value => String], private val generator: Option[Double => List[(String, Value)]], private val precondition: Option[IMap[String, Value] => Boolean], private val postcondition: Option[(IMap[String, Value], IMap[String, Value], Value) => Boolean], private val objectComparators: Map[String, (Value, Value) => Int]) {
+class Synthesis(private val controller: Controller, name: String, typ: Type, private val inputTypes: List[(String, Type)], private val functions: IMap[String, Program], private val objectTypes: IMap[String, List[(String, Type)]], private val printHelpers: PartialFunction[String, Value => String], private val generator: Option[Double => List[(String, Value)]], private val precondition: Option[IMap[String, Value] => Boolean], private val postcondition: Option[(IMap[String, Value], IMap[String, Value], Value) => Boolean], private val objectComparators: Map[String, (Value, Value) => Int]) extends Serializable {
 
   import graphprog.lang.{ Executor, Printer, Typer, IteratorExecutor }
   import graphprog.lang.ASTUtils._
@@ -28,7 +28,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
   private val defaultExecutor = new Executor(functions, longPrinter)
   private val typer = new Typer(functions, objectTypes)
   
-  private val allInputs = ListBuffer.empty[List[(String, Value)]]
+  private var allInputs = List.empty[List[(String, Value)]]  // TODO: This should be a val ListBuffer, but with that when I load backed-up data, I can't add to this.
   private val finishedInputs = ListBuffer.empty[List[(String, Value)]]
   private val origHoles = Map.empty[Stmt, PossibilitiesHole]
   private val enteredActions = Map.empty[PossibilitiesHole, ListBuffer[(Memory, List[Action])]]
@@ -742,7 +742,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	  breakpointsToRemove = Nil
 	  if (breakpoints exists { _ match {
 	    case NormalBreakpoint(s) => curStmt eq s
-	    case ConditionalBreakpoint(s, c) => curStmt.eq(s) && (try { defaultExecutor.evaluateBoolean(memory, c) } catch { case _ => controller.displayMessage("Evaluation of this breakpoint's condition crashed."); true })  // TODO: Is this how we want to handle this case?
+	    case ConditionalBreakpoint(s, c) => curStmt.eq(s) && (try { defaultExecutor.evaluateBoolean(memory, c) } catch { case _ => updateDisplayShort(false); controller.displayMessage("Evaluation of this breakpoint's condition crashed."); true })  // TODO: Is this how we want to handle this case?
 	  } })
 	    continue = false
 	  // See if we're at the point where we need to step through the already-seen branch of a conditional.
@@ -998,7 +998,11 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     }
   }
   private def getTraceWithHelpFromUser(code: List[Stmt], inputs: List[(String, Value)], pruneAfterUnseen: Boolean, amFixing: Boolean, failingStmt: Option[Stmt], otherBranch: Option[(Stmt, UnknownJoinIf)] = None): List[Stmt] = {
-    allInputs += inputs  // This might add duplicate inputs (when we re-do one to find a join) but comparing inputs for equality is a pain, since they're from different executions and so we can't just compare by ids.
+    controller.getOptions().dumpBackupData match {
+      case Some(filename) => dumpBackupData(filename, controller, code)
+      case None =>
+    }
+    allInputs :+= inputs  // This might add duplicate inputs (when we re-do one to find a join) but comparing inputs for equality is a pain, since they're from different executions and so we can't just compare by ids.
     controller.clearScreen()
     breakpoints = Nil
     breakpointsToAdd = Nil
@@ -1224,11 +1228,11 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 
   protected[graphprog] def synthesize(initialTrace: Trace): Program = {
     println(shortPrinter.stringOfStmts(initialTrace.actions))
-    allInputs += initialTrace.inputs
+    allInputs :+= initialTrace.inputs
     val stmts = genProgramAndFillHoles(new Memory(initialTrace.inputs), initialTrace.actions, false, IMap.empty)
-    synthesize(initialTrace.inputs, stmts)
+    synthesizeCode(stmts)
   }
-  private def synthesize(inputs: List[(String, Value)], stmts: List[Stmt]): Program = {
+  protected[graphprog] def synthesizeCode(stmts: List[Stmt]): Program = {
     @tailrec def synthesizeRec(code: List[Stmt]): (List[Stmt], Boolean) = {
       val prunedCode = prunePossibilities(code)
       val (furtherPrunedCode, inputs) = getNextInput(prunedCode, None)
@@ -1264,7 +1268,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
   }
   def synthesize(input: List[(String, Value)]): Program = {
     val stmts = getTraceWithHelpFromUser(List(UnseenStmt()), input, false, false, None)
-    synthesize(input, stmts)
+    synthesizeCode(stmts)
   }
 
   /**

@@ -4,6 +4,7 @@ protected[test] object TestCommon {
 
   import graphprog.lang.AST._
   import graphprog.Utils._
+  import graphprog.Controller.Options
   import scala.annotation.tailrec
 
   implicit def string2Var(s: String) = Var(s)
@@ -179,20 +180,23 @@ protected[test] object TestCommon {
     helper(tree, Null)
   }
 
-  def parseCommandLine(args: Array[String]) {
+  def parseCommandLine(args: Array[String]): Options = {
+    import scala.util.Random.{ setSeed, nextLong }
     def showUsage() {
       println("<prog> [--seed N] [--help]")
       println("  --seed N   Sets the random seed used to generate test cases")
+      println("  --dump-backup-data <file>   Dumps backup information that can be used to restore after a crash")
+      println("  --load-backup-data <file>   Loads backup information from a file")
       println("  --help     Displays this help text")
     }
-
-    import scala.util.Random.{ setSeed, nextLong }
     var seedSet = false
     def setRandomSeed(seed: Long) {
       println("Setting random seed to " + seed)
       seedSet = true
       setSeed(seed)
     }
+    var dumpBackupData: Option[String] = None
+    var loadBackupData: Option[String] = None
     var i = 0
     while (i < args.length) {
       if (args(i) == "--help") {
@@ -201,6 +205,12 @@ protected[test] object TestCommon {
       } else if (args(i) == "--seed" && i + 1 < args.length) {
 	setRandomSeed(args(i+1).toLong)
 	i += 2
+      } else if (args(i) == "--dump-backup-data" && i + 1 < args.length) {
+	dumpBackupData = Some(args(i + 1))
+	i += 2
+      } else if (args(i) == "--load-backup-data" && i + 1 < args.length) {
+	loadBackupData = Some(args(i + 1))
+	i += 2
       } else {
         showUsage()
         System.exit(1)
@@ -208,6 +218,7 @@ protected[test] object TestCommon {
     }
     if (!seedSet)
       setRandomSeed(nextLong())
+    new Options(dumpBackupData, loadBackupData)
   }
 
 }

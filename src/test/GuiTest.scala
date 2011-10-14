@@ -17,18 +17,18 @@ object GuiTest {
   def mapOfPrograms(programs: Program*): IMap[String, Program] = programs map { p => (p.name, p) } toMap
 
   def main(args: Array[String]) {
-    parseCommandLine(args)
-    //simpleTest()
-    //bigListTest()
-    //emptyObjectAndArrayTest()
-    //manyVarsTest()
-    //getActionTest()
-    //getTraceTest()
-    synthesizeTest()
+    val options = parseCommandLine(args)
+    //simpleTest(options)
+    //bigListTest(options)
+    //emptyObjectAndArrayTest(options)
+    //manyVarsTest(options)
+    //getActionTest(options)
+    //getTraceTest(options)
+    synthesizeTest(options)
   }
 
-  def simpleTest() {
-    val controller = new Controller(makeSynthesizer("", UnitType, Nil, IMap.empty, IMap.empty, objectComparators = listComparator), IMap.empty, IMap.empty, listComparator, listFieldLayout, listLayout)
+  def simpleTest(options: Options) {
+    val controller = new Controller(makeSynthesizer("", UnitType, Nil, IMap.empty, IMap.empty, objectComparators = listComparator), IMap.empty, IMap.empty, listComparator, listFieldLayout, listLayout, options)
     val arr = IntArray(0, List(42, 17, 137).toArray)
     val rec = Object(4, "Rec", Map.empty[String, Value] + ("me" -> Null))
     rec.fields("me") = rec
@@ -61,8 +61,8 @@ object GuiTest {
     controller.updateDisplay(mem, Nil, Some(Null))
   }
 
-  def bigListTest() {
-    val controller = new Controller(makeSynthesizer("", UnitType, Nil, IMap.empty, IMap.empty, objectComparators = listComparator), IMap.empty, IMap.empty, listComparator, listFieldLayout, listLayout)
+  def bigListTest(options: Options) {
+    val controller = new Controller(makeSynthesizer("", UnitType, Nil, IMap.empty, IMap.empty, objectComparators = listComparator), IMap.empty, IMap.empty, listComparator, listFieldLayout, listLayout, options)
 
     var id = 1
     def getID(): Int = { val n = id; id += 1; n }
@@ -76,26 +76,26 @@ object GuiTest {
     controller.updateDisplay(mem, Nil, Some(Null))
   }
 
-  def emptyObjectAndArrayTest() {
-    val controller = new Controller(makeSynthesizer("", UnitType, Nil, IMap.empty, IMap.empty), IMap.empty, IMap.empty, IMap.empty, IMap.empty, IMap.empty)
+  def emptyObjectAndArrayTest(options: Options) {
+    val controller = new Controller(makeSynthesizer("", UnitType, Nil, IMap.empty, IMap.empty), IMap.empty, IMap.empty, IMap.empty, IMap.empty, IMap.empty, options)
 
     val mem = new Memory(List(("o" -> Object(0, "Empty", Map.empty)), ("a" -> IntArray(0, Nil.toArray))))
 
     controller.updateDisplay(mem, Nil, Some(Null))
   }
 
-  def manyVarsTest() {
-    val controller = new Controller(makeSynthesizer("", UnitType, Nil, IMap.empty, IMap.empty), mapOfPrograms(answerProgram, factProgram), IMap.empty, IMap.empty, IMap.empty, IMap.empty)
+  def manyVarsTest(options: Options) {
+    val controller = new Controller(makeSynthesizer("", UnitType, Nil, IMap.empty, IMap.empty), mapOfPrograms(answerProgram, factProgram), IMap.empty, IMap.empty, IMap.empty, IMap.empty, options)
 
     val mem = new Memory(List(("a" -> IntConstant(1)), ("b" -> IntConstant(2)), ("c" -> IntConstant(3)), ("d" -> IntConstant(4)), ("e" -> IntConstant(5)), ("f" -> IntConstant(6)), ("g" -> IntConstant(7)), ("h" -> IntConstant(8)), ("i" -> IntConstant(9)), ("j" -> IntConstant(10)), ("k" -> IntConstant(11)), ("l" -> IntConstant(12)), ("m" -> IntConstant(12)), ("n" -> IntConstant(13))))
 
     controller.updateDisplay(mem, Nil, Some(Null))
   }
 
-  def getActionTest() {
+  def getActionTest(options: Options) {
 
     def test(mem: Memory, possibilityMaker: Memory => List[Action], functions: IMap[String, Program]) {
-      val controller = new Controller(makeSynthesizer("", UnitType, Nil, IMap.empty, IMap.empty, objectComparators = listComparator), functions, IMap.empty, listComparator, listFieldLayout, listLayout)
+      val controller = new Controller(makeSynthesizer("", UnitType, Nil, IMap.empty, IMap.empty, objectComparators = listComparator), functions, IMap.empty, listComparator, listFieldLayout, listLayout, options)
       val possibilities = possibilityMaker(mem)
       println("Possibilities are " + iterableToString(possibilities, " or ", { s: Stmt => printer.stringOfStmt(s) }))
       controller.updateDisplay(mem, Nil, Some(Null))
@@ -177,10 +177,10 @@ object GuiTest {
 
   }
 
-  def getTraceTest() {
+  def getTraceTest(options: Options) {
 
     def test(mem: Memory, functions: IMap[String, Program], objectTypes: IMap[String, List[(String, Type)]], objectComparators: IMap[String, (Value, Value) => Int], fieldLayouts: IMap[String, List[List[String]]], objectLayouts: IMap[String, ObjectLayout]) {
-      val controller = new Controller(makeSynthesizer("", UnitType, Nil, IMap.empty, objectTypes, objectComparators = objectComparators), functions, objectTypes, objectComparators, fieldLayouts, objectLayouts)
+      val controller = new Controller(makeSynthesizer("", UnitType, Nil, IMap.empty, objectTypes, objectComparators = objectComparators), functions, objectTypes, objectComparators, fieldLayouts, objectLayouts, options)
       val unseen = UnseenStmt()
       controller.updateDisplay(mem, List(unseen), Some(unseen))
       controller.getStmtTrace(mem, false) match {
@@ -197,11 +197,11 @@ object GuiTest {
 
   }
 
-  def synthesizeTest() {
+  def synthesizeTest(options: Options) {
 
     def test(name: String, typ: Type, inputs: List[(String, Value)], functions: IMap[String, Program], objectTypes: IMap[String, List[(String, Type)]], postcondition: Option[(IMap[String, Value], IMap[String, Value], Value) => Boolean], objectComparators: IMap[String, (Value, Value) => Int], fieldLayouts: IMap[String, List[List[String]]], objectLayouts: IMap[String, ObjectLayout]) {
       try {
-	val result = synthesize((new Memory(inputs)).toIterator.toList, makeSynthesizer(name, typ, graphprog.lang.Typer.typeOfInputs(inputs), functions, objectTypes, postcondition = postcondition, objectComparators = objectComparators) _, functions, objectTypes, objectComparators, fieldLayouts, objectLayouts)
+	val result = synthesize((new Memory(inputs)).toIterator.toList, makeSynthesizer(name, typ, graphprog.lang.Typer.typeOfInputs(inputs), functions, objectTypes, postcondition = postcondition, objectComparators = objectComparators) _, functions, objectTypes, objectComparators, fieldLayouts, objectLayouts, options)
 	println("Result:\n" + printer.stringOfProgram(result))
       } catch {
 	case e => e.printStackTrace

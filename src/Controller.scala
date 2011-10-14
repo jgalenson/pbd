@@ -10,16 +10,16 @@ import scala.collection.immutable.Map
 import scala.collection.{ Map => TMap }
 import Utils._
 
-protected[graphprog] class Controller(private val synthesisCreator: Controller => Synthesis, private val helperFunctions: Map[String, Program], private val objectTypes: Map[String, List[(String, Type)]], private val objectComparators: Map[String, (Value, Value) => Int], private val fieldLayouts: Map[String, List[List[String]]], private val objectLayouts: Map[String, ObjectLayout]) {
+protected[graphprog] class Controller(private val synthesisCreator: Controller => Synthesis, private val helperFunctions: Map[String, Program], private val objectTypes: Map[String, List[(String, Type)]], private val objectComparators: Map[String, (Value, Value) => Int], private val fieldLayouts: Map[String, List[List[String]]], private val objectLayouts: Map[String, ObjectLayout], @transient private var options: Options) extends Serializable {
 
-  protected var lastState: Option[(Memory, List[Stmt], Option[Stmt])] = None
-  protected val actionsVar = new SingleUseSyncVar[ActionsInfo]
-  protected val stmtTraceVar = new SingleUseSyncVar[StmtTraceIntermediateInfo]
-  protected val exprTraceVar = new SingleUseSyncVar[ExprTraceIntermediateInfo]
-  protected val fixInfo = new SingleUseSyncVar[FixInfo]
+  @transient private var lastState: Option[(Memory, List[Stmt], Option[Stmt])] = None
+  private val actionsVar = new SingleUseSyncVar[ActionsInfo]
+  private val stmtTraceVar = new SingleUseSyncVar[StmtTraceIntermediateInfo]
+  private val exprTraceVar = new SingleUseSyncVar[ExprTraceIntermediateInfo]
+  private val fixInfo = new SingleUseSyncVar[FixInfo]
 
-  protected val synthesizer = synthesisCreator(this)
-  protected val gui = makeGUI(this, helperFunctions, objectTypes, objectComparators, fieldLayouts, objectLayouts)  // We need to define this last since its creation triggers a paint, which calls getMemory, which needs memChan.
+  private val synthesizer = synthesisCreator(this)
+  @transient private var gui = makeGUI(this, helperFunctions, objectTypes, objectComparators, fieldLayouts, objectLayouts)  // We need to define this last since its creation triggers a paint, which calls getMemory, which needs memChan.
 
   def synthesize(input: List[(String, Value)]): Program = synthesizer.synthesize(input)
   def synthesize(trace: Trace): Program = synthesizer.synthesize(trace)
@@ -178,13 +178,29 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
 
   def displayMessage(msg: String) = gui.displayMessage(msg)
 
+  def getOptions(): Options = options
+
   def clearScreen() = invokeLater { gui.clear() }
 
   def cleanup() = gui.dispose()
 
+  /*
+   * Serialization methods.
+   * These next two methods control how the Controller is serialized.
+   * We need to manually recreate the GUI after deserializing the Controller.
+   */
+  private def writeObject(out: java.io.ObjectOutputStream) {
+    out.defaultWriteObject()
+  }
+
+  private def readObject(in: java.io.ObjectInputStream) {
+    in.defaultReadObject()
+    gui = makeGUI(this, helperFunctions, objectTypes, objectComparators, fieldLayouts, objectLayouts)
+  }
+
 }
 
-private class SingleUseSyncVar[T] extends SyncVar[T] {
+private class SingleUseSyncVar[T] extends SyncVar[T] with Serializable {
   override def get = synchronized {
     val x = super.get
     unset
@@ -204,21 +220,48 @@ object Controller {
    */
   type ObjectLayout = (Object, (Value => Int), (Value => Int), Int) => Iterable[(Object, (Int, Int))]
 
-  def synthesize(trace: Trace, synthesisCreator: Controller => Synthesis, helperFunctions: Map[String, Program], objectTypes: Map[String, List[(String, Type)]], objectComparators: Map[String, (Value, Value) => Int], fieldLayouts: Map[String, List[List[String]]], objectLayouts: Map[String, ObjectLayout]): Program = {
-    val controller = new Controller(synthesisCreator, helperFunctions, objectTypes, objectComparators, fieldLayouts, objectLayouts)
-    try {
-      controller.synthesize(trace)
-    } finally {
-      controller.cleanup()
+  def synthesize(trace: Trace, synthesisCreator: Controller => Synthesis, helperFunctions: Map[String, Program], objectTypes: Map[String, List[(String, Type)]], objectComparators: Map[String, (Value, Value) => Int], fieldLayouts: Map[String, List[List[String]]], objectLayouts: Map[String, ObjectLayout], options: Options): Program = synthesize(controller => controller.synthesize(trace), synthesisCreator, helperFunctions, objectTypes, objectComparators, fieldLayouts, objectLayouts, options)
+  def synthesize(inputs: List[(String, Value)], synthesisCreator: Controller => Synthesis, helperFunctions: Map[String, Program], objectTypes: Map[String, List[(String, Type)]], objectComparators: Map[String, (Value, Value) => Int], fieldLayouts: Map[String, List[List[String]]], objectLayouts: Map[String, ObjectLayout], options: Options): Program = synthesize(controller => controller.synthesize(inputs), synthesisCreator, helperFunctions, objectTypes, objectComparators, fieldLayouts, objectLayouts, options)
+  private def synthesize(action: Controller => Program, synthesisCreator: Controller => Synthesis, helperFunctions: Map[String, Program], objectTypes: Map[String, List[(String, Type)]], objectComparators: Map[String, (Value, Value) => Int], fieldLayouts: Map[String, List[List[String]]], objectLayouts: Map[String, ObjectLayout], options: Options): Program = {
+    options.loadBackupData match {
+      case Some(filename) =>  // Load in the stored data and continue computation from that point.
+	val (controller, code) = loadBackupData(filename)
+	controller.options = options  // Use the current options.
+	try {
+	  controller.synthesizer.synthesizeCode(code)
+	} finally {
+	  controller.cleanup()
+	}
+      case None =>
+	val controller = new Controller(synthesisCreator, helperFunctions, objectTypes, objectComparators, fieldLayouts, objectLayouts, options)
+	try {
+	  action(controller)
+	} finally {
+	  controller.cleanup()
+	}
     }
   }
-  def synthesize(inputs: List[(String, Value)], synthesisCreator: Controller => Synthesis, helperFunctions: Map[String, Program], objectTypes: Map[String, List[(String, Type)]], objectComparators: Map[String, (Value, Value) => Int], fieldLayouts: Map[String, List[List[String]]], objectLayouts: Map[String, ObjectLayout]): Program = {
-    val controller = new Controller(synthesisCreator, helperFunctions, objectTypes, objectComparators, fieldLayouts, objectLayouts)
-    try {
-      controller.synthesize(inputs)
-    } finally {
-      controller.cleanup()
-    }
+
+  /*
+   * Utility methods that handle serialization of our state.
+   * TODO: Improve handling of serialization.  Some fields are marked vars (e.g., options, gui in Controller ).  Some things are serialized that don't need to be (e.g. printer, executors, typer in Synthesis).
+   */
+
+  protected[graphprog] def dumpBackupData(filename: String, controller: Controller, curCode: List[Stmt]) {
+    import java.io.{ File, FileOutputStream, ObjectOutputStream }
+    val out = new ObjectOutputStream(new FileOutputStream(filename))
+    out.writeObject(controller)
+    out.writeObject(curCode)
+    out.close()
+  }
+
+  private def loadBackupData(filename: String): (Controller, List[Stmt]) = {
+    import java.io.{ File, FileInputStream, ObjectInputStream }
+    val in = new ObjectInputStream(new FileInputStream(filename))
+    val controller = in.readObject().asInstanceOf[Controller]
+    val code = in.readObject().asInstanceOf[List[Stmt]]
+    in.close()
+    (controller, code)
   }
 
   /**
@@ -259,5 +302,7 @@ object Controller {
   protected[graphprog] abstract class Breakpoint { val line: Stmt }
   protected[graphprog] case class NormalBreakpoint(line: Stmt) extends Breakpoint
   protected[graphprog] case class ConditionalBreakpoint(line: Stmt, condition: Expr) extends Breakpoint
+
+  class Options(val dumpBackupData: Option[String], val loadBackupData: Option[String])
 
 }

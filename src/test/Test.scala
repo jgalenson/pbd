@@ -13,9 +13,9 @@ object Test {
   import TestCommon._
 
   def main(args: Array[String]) {
-    parseCommandLine(args)
+    val options = parseCommandLine(args)
     //testGraphviz()
-    testSynthesize()
+    testSynthesize(options)
   }
 
   val printer = new Printer(Map[String, Value => String](), false)
@@ -47,13 +47,13 @@ object Test {
 
   }
 
-  def testSynthesize() {
+  def testSynthesize(options: Options) {
 
     def test(trace: Trace, printHelpers: PartialFunction[String, Value => String] = Map.empty, precondition: Option[Map[String, Value] => Boolean] = None, postcondition: Option[(Map[String, Value], Map[String, Value], Value) => Boolean] = None, objectComparators: Map[String, (Value, Value) => Int] = Map.empty, fieldLayouts: Map[String, List[List[String]]] = Map.empty, objectLayouts: Map[String, ObjectLayout] = Map.empty) {
       val printer = new Printer(printHelpers, false)
       //println("Program:\n" + printer.stringOfTrace(trace))
       try {
-	val result = synthesize(trace, makeSynthesizerFromTrace(trace, printHelpers, precondition = precondition, postcondition = postcondition, objectComparators = objectComparators) _, trace.functions, trace.objectTypes, objectComparators, fieldLayouts, objectLayouts)
+	val result = synthesize(trace, makeSynthesizerFromTrace(trace, printHelpers, precondition = precondition, postcondition = postcondition, objectComparators = objectComparators) _, trace.functions, trace.objectTypes, objectComparators, fieldLayouts, objectLayouts, options)
 	println("Result:\n" + printer.stringOfProgram(result))
       } catch {
 	case e => e.printStackTrace

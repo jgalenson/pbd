@@ -3,7 +3,7 @@ package graphprog.lang
 import AST._
 import graphprog.Utils._
 
-protected[graphprog] class Printer(helpers: PartialFunction[String, Value => String], short: Boolean) {
+protected[graphprog] class Printer(helpers: PartialFunction[String, Value => String], short: Boolean) extends Serializable {
 
   import scala.collection.immutable.Map
   import scala.collection.immutable.Set
@@ -145,7 +145,7 @@ protected[graphprog] object Printer {
 
 }
 
-protected[graphprog] class Typer(functions: Map[String, Program], objectTypes: Map[String, List[(String, Type)]]) {
+protected[graphprog] class Typer(functions: Map[String, Program], objectTypes: Map[String, List[(String, Type)]]) extends Serializable {
 
   protected[graphprog] def typeOfValue(v: Value): Type = Typer.typeOfValue(v)
   protected[graphprog] def typeOfExpr(e: Expr, memory: Memory): Type = e match {
