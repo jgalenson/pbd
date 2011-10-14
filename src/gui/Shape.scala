@@ -202,7 +202,7 @@ protected[gui] object Shape {
 	  y + h
 	}}
       case ArrLen(IVal(len, x, y, w, h), _) => drawCentered("length: " + stringOfPrimitive(len), x, y, w, h)
-      case c: Child[Shape,Shape] => draw(g, c.child, getChildren, colorer, arrowColorer, isShadow, parent = Some(c))
+      case c: Child[_, _] => draw(g, c.child, getChildren, colorer, arrowColorer, isShadow, parent = Some(c))
       case NullShape(_, x, y, w, h) =>
 	g.drawLine(x, y, x + w, y)
 	g.drawLine(x + 2, y + h / 2, x + w - 2, y + h / 2)

@@ -4,7 +4,7 @@ default: build testrule
 build:
 	echo "Building..."
 	mkdir -p classes
-	fsc -d classes *.scala */*.scala
+	fsc -deprecation -unchecked -d classes *.scala */*.scala
 
 clean:
 	rm -rf classes

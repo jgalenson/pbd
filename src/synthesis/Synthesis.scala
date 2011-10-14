@@ -1326,6 +1326,8 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	      all += fails.toList
 	    all
           }
+	  if (Thread.currentThread().isInterrupted())  // Manually check for interruption and timeout.  This won't catch infinite loops with no holes, though.
+	    throw new java.util.concurrent.TimeoutException
 	  hole match {
 	    case h @ PossibilitiesHole(possibilities) =>
 	      val result = path.find{ h == _._1 } match {
@@ -1643,7 +1645,7 @@ object Synthesis {
   // Number of pruning rounds.
   private val NUM_PRUNING_ROUNDS = 10
   // Timeout in ms when running programs during pruning.
-  private val TIMEOUT = 100
+  private val TIMEOUT = 200
   // Number of inputs to try when we have a final program to try to ensure that we're not missing a conditional.
   private val NUM_FINAL_CHECKS = 20
 

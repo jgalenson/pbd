@@ -24,24 +24,17 @@ object Utils {
   case class ExceptionThrown(val e: Throwable) extends ExecutionResult[Nothing]
   case object Timeout extends ExecutionResult[Nothing]
   def executeWithTimeout[T](f: => T, timeout: Long): ExecutionResult[T] = {
-    import java.util.concurrent.{Callable, FutureTask, TimeUnit, TimeoutException, ExecutionException}
-    val task = new FutureTask(new Callable[T](){ def call() = f })
-    val thread = new Thread(task)
-    thread.start()
+    import java.util.concurrent.{Executors, Callable, TimeUnit, TimeoutException, ExecutionException}
+    val executor = Executors.newCachedThreadPool()
+    val task = executor.submit(new Callable[T](){ def call() = f })
     try {
       NormalResult(task.get(timeout, TimeUnit.MILLISECONDS))
     } catch {
-      case _: TimeoutException => {
-	//println("*****Timeout")
-	task.cancel(true)
-	thread.stop()
-	Timeout
-      }
-      case e: ExecutionException => {
-	ExceptionThrown(e.getCause)
-      }
+      case _: TimeoutException => Timeout
+      case e: ExecutionException => ExceptionThrown(e.getCause)
     } finally {
-      thread.join()
+      task.cancel(true)
+      executor.shutdownNow()
     }
   }
 

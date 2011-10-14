@@ -65,6 +65,7 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
     invokeLater{ gui.doFixStep(newDiffInfo, amInConditional, canDiverge) }
     getFixInfo()
   }
+  // TODO/FIXME: Use manually-executed actionsAfterJoin to prune corresponding PossibilityHoles, if any (test on sort: I join on j:=j+1, which should prune j:=min+1).
   // Returns a function that, given the actions executed since the conditional ended, finds the legal join points.
   def insertConditionalAtPoint(): ConditionalInfo = {
     import graphprog.lang.{ Executor, Printer }
