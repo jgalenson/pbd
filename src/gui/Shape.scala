@@ -321,7 +321,7 @@ protected[gui] object Shape {
       @tailrec def getPrimitive(shape: Shape): Primitive = (shape: @unchecked) match {
 	case v: Val => v.data
 	case Prim(_, Some(data), _, _, _, _) => data
-	case c: Child[Shape, Shape] => getPrimitive(c.child)
+	case c: Child[_, _] => getPrimitive(c.child)
 	case FuncCall(_, _, Some(result), _, _, _, _, _, _, _) => result.asInstanceOf[Primitive]
       }
       lhs match {
@@ -368,7 +368,7 @@ protected[gui] object Shape {
     case Pointer(_, Arrow(_, target, _, _, _, _, _), _, _, _, _) => shapeToValue(target)
     case IntArr(arr, _, _, _, _) => arr
     case Obj(o, _, _, _, _) => o
-    case c: Child[Shape, Shape] => shapeToValue(c.child)
+    case c: Child[_, _] => shapeToValue(c.child)
     case FuncCall(_, _, Some(result), _, _, _, _, _, _, _) => result
   }
   def shapeToExpr(shape: Option[Shape]): Expr = shape match {

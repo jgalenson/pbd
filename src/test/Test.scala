@@ -3,7 +3,7 @@ package graphprog.test
 object Test {
 
   import graphprog.lang.AST._
-  import graphprog.lang.{ Executor, Printer, GraphvizHelper, IteratorExecutor }
+  import graphprog.lang.{ Executor, Printer, IteratorExecutor }
   import graphprog.Controller._
   import graphprog.Utils._
   import graphprog.lang.Compiler._
@@ -20,7 +20,7 @@ object Test {
 
   val printer = new Printer(Map[String, Value => String](), false)
 
-  def testGraphviz() {
+  /*def testGraphviz() {
 
     val graphviz = new GraphvizHelper
 
@@ -45,7 +45,7 @@ object Test {
       GT("cur", FieldAccess("cur", "next"))
     ))
 
-  }
+  }*/
 
   def testSynthesize(options: Options) {
 

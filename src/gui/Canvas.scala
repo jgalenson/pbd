@@ -106,7 +106,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
   @tailrec private def getArrowsFrom(shape: Shape): Iterable[Arrow] = shape match {
     case p @ Pointer(_, a, _, _, _, _) => a :: diffArrowMap.getOrElse(p, Nil)
     case call: FuncCall => call.getAllArrows()
-    case c: Child[Shape, Shape] => getArrowsFrom(c.child)
+    case c: Child[_, _] => getArrowsFrom(c.child)
     case _ => Nil
   } 
   private val arrowSources = Map.empty[Arrow, Shape]
@@ -159,7 +159,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
       smartRepaint(boundsOfShape(t))
     }
     def findLegalInnerShape(x: Int, y: Int, legalShapes: ISet[Shape]): Option[Shape] = findInnerShape(x, y, legalShapes) match {
-      case Some(c: Child[Shape, Shape]) => Some(if (legalShapes contains c) c else c.parent)
+      case Some(c: Child[_, _]) => Some(if (legalShapes contains c) c else c.parent)
       case s => s
     }
     // TODO-low: Use Swing tooltips.  See JComponent.getToolTip{Location,Text} versions that take mouseEvents.  Canvas can implement those to return the location/string, and this can simply set them into an ivar.  Unfortunately, those currently seem to fail, probably due to xmonad/Java not liking each other.
@@ -386,7 +386,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     case shape @ IntArr(IntArray(id, _), _, _, _, _) => (arrLens(id) :: arrElems(id)).flatMap{ f => getAllBounds(f.child) }  // We check the children since calls might point to them.
     case shape @ Obj(Object(id, _, fs), _, _, _, _) => fields(id).values.flatMap{ f => getAllBounds(f.child) }  // We check the children since some might be pointers with arrows.
     case call @ FuncCall(_, _, _, _, _, _, _, _, _, true) => call.getAllArrows().map{ arrow => boundsOfArrow(arrow) }
-    case c: Child[Shape, Shape] => getAllBounds(c.parent)
+    case c: Child[_, _] => getAllBounds(c.parent)
     case _ => Nil
   })
   private def canReceive(lhs: Shape, rhs: Shape, mode: Trace): Boolean = {
@@ -671,7 +671,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	  assert(id1 == id2)
 	  f2.foreach{ kv => f1 += kv._1 -> (kv._2 match { case Object(id, _, _) => assert(objects contains id, id + ", " + iterableToString(objects, "; ", (kv: (Int, Obj)) => kv._1 + " -> " + printer.stringOfValue(kv._2.data))); objects(id).data case IntArray(id, _) => arrays(id).data case v => v }) }  // We copy the object's fields into the shape so the shape is fresh.  We need this since executing calls in trace mode produces a cloned object distinct and newer than the shape's object.  But note that we cannot copy over f2's values directly since they might refer to cloned objects and arrays.  In this case, we make sure to use our version.
 	  f2.foreach{ kv => updateShape(fields(id1)(kv._1), kv._2) }  // This must be f2 and not f1, since f1's rhs are ours, which might not have their changes.
-	case (c: Child[Shape, Shape], _) => updateShape(c.child, value, false)
+	case (c: Child[_, _], _) => updateShape(c.child, value, false)
 	case (_: NullShape, Null) =>
       }
       if (updateWH)
@@ -838,7 +838,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	    fields(o.id).values.foreach{ f => updateWidthAndHeightHelper(f.child, true) }  // if the object's size has changed, we need to update its fields.
 	    getArrowsTo(shape).foreach{ a => updateArrow(a, a.srcX, a.srcY, 0, 0, a.target) }
 	  }
-	case c: Child[Shape, Shape] =>
+	case c: Child[_, _] =>
 	  updateWidthAndHeightHelper(c.child, c.isInstanceOf[Field])
 	  if (updateParent)
 	    updateWidthAndHeightHelper(c.parent, false)
@@ -1020,7 +1020,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	val possibilitiesMap = possibilities.foldLeft(IMap.empty[Shape, List[Action]]){ case (acc, cur: Expr) => {
 	  val curShape = getShape(cur, false)
 	  acc + (curShape -> (cur :: acc.getOrElse(curShape, Nil)))
-	}}
+	} case _ => throw new RuntimeException }
 	val possibilitiesSet = possibilitiesMap.keySet.toSet
 	mode = SelectQuery(possibilitiesSet, possibilitiesMap, newShapes.toSet)
       case _: Assign =>
@@ -1029,7 +1029,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	  val rhsShape = getShape(rhs, false)
 	  val leftInnerMap = accl.getOrElse(lhsShape, IMap.empty[Shape, List[Action]])
 	  (accl + (lhsShape -> (leftInnerMap + (rhsShape -> (cur :: leftInnerMap.getOrElse(rhsShape, Nil))))), accr + (rhsShape -> (accr.getOrElse(rhsShape, ISet.empty[Shape]) + lhsShape)))
-	}}
+	} case _ => throw new RuntimeException }
 	val lefts = possibilitiesMap.keySet.toSet
 	val rights = possibilitiesMap.values.foldLeft(ISet.empty[Shape]){ (acc, cur) => acc ++ cur.keySet }
 	mode = AssignQuery(possibilitiesMap, lefts, rights, rightMap, newShapes.toSet)
@@ -1303,7 +1303,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	  addArrow(arrow, p)
 	  addDiffArrow(arrow, p, false)
 	  oldDiffArrows += p.arrow
-	case c: Child[Shape, Shape] => updateShape(c.child, v, c)
+	case c: Child[_, _] => updateShape(c.child, v, c)
       }
       updateShape(s, v, s)
     }

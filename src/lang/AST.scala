@@ -83,8 +83,8 @@ object AST {
   sealed trait Unseen extends Hole {
     override def equals(o: Any) = o match { case o: AnyRef => this eq o case _ => false }  // Compare holes by reference so two holes that look the same are not equal (needed for mapping different Unseens to different actual statements).
   }
-  case class UnseenExpr extends Expr with Unseen
-  case class UnseenStmt extends Action with Unseen
+  case class UnseenExpr() extends Expr with Unseen
+  case class UnseenStmt() extends Action with Unseen
 
   sealed trait Stmt
   case class Assign(lhs: LVal, rhs: Expr) extends Action

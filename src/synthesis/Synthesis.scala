@@ -74,19 +74,20 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
       val heads = traces map { t => (t._1.head, t._2) }
       val curNode = heads.head._1 match {
 	case Conditional(_, _) => 
-	  val conditions = heads map { case (Conditional(c, _), m) => (c, m) }
-	  val paths = heads partition { case (Conditional(cond, _), memory) => defaultExecutor.evaluateBoolean(memory, cond) }
+	  val conditionalHeads = heads map { case (c: Conditional, m) => (c, m) case _ => throw new RuntimeException }
+	  val conditions = conditionalHeads map { case (Conditional(c, _), m) => (c, m) }
+	  val paths = conditionalHeads partition { case (Conditional(cond, _), memory) => defaultExecutor.evaluateBoolean(memory, cond) }
 	  val true_branch = paths._1 map { case (Conditional(_, body), memory) => (body, memory) }
 	  val false_branch = paths._2 map { case (Conditional(_, body), memory) => (body, memory) }
 	  If(ExprEvidenceHole(conditions), genProgramFromCompleteTracesRec(Nil, true_branch), Nil, genProgramFromCompleteTracesRec(Nil, false_branch))
 	case i: Iterate if loops contains i => loops(i)
 	case Iterate(_) =>
-	  val allIterations = heads flatMap { case (Iterate(i), m) => { val as = i map { t => t._1 :: t._2 }; as zip as.scanLeft(m){ (curMem, curIter) => defaultExecutor.executeStmts(curMem, curIter)._2 } } }
-	  val conditionals = allIterations map { case (c :: b, m) => (List(c), m) }
-	  val bodies = allIterations flatMap { case (c :: b, m) => if (b.isEmpty) Nil else List((b, defaultExecutor.execute(m, c)._2)) }
+	  val allIterations = heads flatMap { case (Iterate(i), m) => { val as = i map { t => t._1 :: t._2 }; as zip as.scanLeft(m){ (curMem, curIter) => defaultExecutor.executeStmts(curMem, curIter)._2 } } case _ => throw new RuntimeException }
+	  val conditionals = allIterations map { case (c :: b, m) => (List(c), m) case _ => throw new RuntimeException }
+	  val bodies = allIterations flatMap { case (c :: b, m) => if (b.isEmpty) Nil else List((b, defaultExecutor.execute(m, c)._2)) case _ => throw new RuntimeException }
 	  val newConditionals = {  // Add a Break to the conditional if it's a for loop so we know we broke out.
 	    if (conditionals.head._1.head.isInstanceOf[Assign])
-	      allIterations.map{ case (c :: b, m) => ((List(c), m), defaultExecutor.executeStmts(defaultExecutor.execute(m, c)._2, b)) }.flatMap{ case ((c, m1), (BreakHit, m2)) => List((c, m1), (List(Break), m2)) case ((c, m), _) => List((c, m)) }
+	      allIterations.map{ case (c :: b, m) => ((List(c), m), defaultExecutor.executeStmts(defaultExecutor.execute(m, c)._2, b)) case _ => throw new RuntimeException }.flatMap{ case ((c, m1), (BreakHit, m2)) => List((c, m1), (List(Break), m2)) case ((c, m), _) => List((c, m)) }
 	    else
 	      conditionals
 	  }
@@ -96,10 +97,10 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	case LiteralAction(a) => assert(holdsOverIterable(heads, (x: (Action, Memory), y: (Action, Memory)) => x._1 == y._1)); a
 	case LiteralExpr(e) => assert(holdsOverIterable(heads, (x: (Action, Memory), y: (Action, Memory)) => x._1 == y._1)); e
 	case UnorderedStmts(_) => 
-	  val bodies = heads map { case (UnorderedStmts(s), m) => s.asInstanceOf[List[Action]] map { a => (List(a), m) } }
+	  val bodies = heads map { case (UnorderedStmts(s), m) => s.asInstanceOf[List[Action]] map { a => (List(a), m) } case _ => throw new RuntimeException }
 	  UnorderedStmts(bodies.transpose flatMap { x => genProgramFromCompleteTracesRec(Nil, x) })
 	case Snapshot(_) =>
-	  val changes = heads map { case (Snapshot(sm), om) => diffMemories(om, sm) }
+	  val changes = heads map { case (Snapshot(sm), om) => diffMemories(om, sm) case _ => throw new RuntimeException }
 	  // Add in dummy assignments for variables that were assigned sometimes but not others.
 	  var (_, varLHS, _, _) = changes.foldLeft((true, Set[String](), Set[(Int, String)](), Set[(Int, Int)]())) { case ((isFirst, accVars, accFields, accModArrs), (curVars, curFields, curModArrs)) => {
 	    assert(heads.size == 1 || (curFields.size <= 1 && curModArrs.size <= 1 && (isFirst || ((accFields.size > 0) == (curFields.size == 1) && (accModArrs.size > 0) == (curModArrs.size == 1)))))  // TODO: I currently allow snapshots in loops to write to at most one field/array.  This is artificial, but removing it is difficult, as it is not obvious which assignments from different iterations work together.
@@ -112,10 +113,10 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	  }
 	  // Convert to UnorderedStmts and recurse on those
 	  val stmts = fullChanges map { case (vars, fields, modArrs) => UnorderedStmts((vars.map{ case (n, v) => Assign(Var(n), getRealExpr(v)) } ++ fields.map { case ((id, f), v) => Assign(FieldAccess(ObjectID(id), f), getRealExpr(v)) } ++ modArrs.map{ case ((id, i), v) => Assign(IntArrayAccess(ArrayID(id), IntConstant(i)), v) }).toList) }
-	  return genProgramFromCompleteTracesRec(ast, stmts.zip(traces).map{ case (s, (_ :: rest, m)) => (s :: rest, m) })
+	  return genProgramFromCompleteTracesRec(ast, stmts.zip(traces).map{ case (s, (_ :: rest, m)) => (s :: rest, m) case _ => throw new RuntimeException })
 	case _ => StmtEvidenceHole(heads)
       }
-      val rest = traces flatMap { case (a :: as, m) => val v = defaultExecutor.execute(m, a); if (v._1 == BreakHit) Nil else List((as, v._2)) }  // TODO-optimization: I've already executed them at least once if they're conditionals or iterates.
+      val rest = traces flatMap { case (a :: as, m) => val v = defaultExecutor.execute(m, a); if (v._1 == BreakHit) Nil else List((as, v._2)) case _ => throw new RuntimeException }  // TODO-optimization: I've already executed them at least once if they're conditionals or iterates.
       genProgramFromCompleteTracesRec(ast :+ curNode, rest)
     }
     genProgramFromCompleteTracesRec(Nil, List((actions, memory)))
@@ -223,7 +224,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
   private def getValidChoices(exprs: Iterable[Expr], evidence: Iterable[(Action, Memory)]): Iterable[Expr] = {
     val fullEvidence = evidence map { case (action, memory) => val (result, memAfter) = defaultExecutor.execute(memory, action); (memory, result, memAfter) }
     val goodExprs = exprs filter { e => fullEvidence forall { case (memBefore, result, memAfter) => try { yieldEquivalentResults(memBefore, e, result, memAfter) } catch { case _ => false } }}
-    if (evidence.size > 0 && evidence.forall{ _._1.isInstanceOf[Call] } && holdsOverIterable(evidence, (x: (Action, Memory), y: (Action, Memory)) => (x._1, y._1) match { case (Call(n1, _), Call(n2, _)) => n1 == n2 })) {  // TODO: This shouldn't be needed once I add expression holes.
+    if (evidence.size > 0 && evidence.forall{ _._1.isInstanceOf[Call] } && holdsOverIterable(evidence, (x: (Action, Memory), y: (Action, Memory)) => (x._1, y._1) match { case (Call(n1, _), Call(n2, _)) => n1 == n2 case _ => throw new RuntimeException })) {  // TODO: This shouldn't be needed once I add expression holes.
       val functionName = evidence.head._1.asInstanceOf[Call].name
       goodExprs filter { _ match { case Call(n1, _) => n1 == functionName case _ => false }}
     } else
@@ -231,7 +232,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
   }
   private def genExpr(evidence: Iterable[(Action, Memory)], maxDepth: Int): Iterable[Expr] = {
     def binaryOpHelper(constructor: (Expr, Expr) => Expr, isCommutative: Boolean): Iterable[Expr] = {
-      val x = evidence filter { _._1.isInstanceOf[BinaryOp] } map { case (b: BinaryOp, m) => ((b.lhs, m), (b.rhs, m)) } unzip
+      val x = evidence collect { case (b: BinaryOp, m) => ((b.lhs, m), (b.rhs, m)) } unzip
       val leftExprs = genExpr(x._1, maxDepth)
       val rightExprs = genExpr(x._2, maxDepth)
       val choices = for (l <- leftExprs; r <- rightExprs if l != r) yield constructor(l, r)
@@ -240,9 +241,9 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
       if (!isCommutative)
 	finalChoices
       else  // Keep only one of (a, b) and (b, a)
-	finalChoices.foldLeft((Set[Expr](), Set[Expr]())){ case ((choices, reversed), cur) => cur match { case c: Comparison => if (choices.contains(c) || reversed.contains(c)) (choices, reversed) else (choices + c, reversed + constructor(c.rhs, c.lhs)) } }._1.toList
+	finalChoices.foldLeft((Set[Expr](), Set[Expr]())){ case ((choices, reversed), cur) => (cur: @unchecked) match { case c: Comparison => if (choices.contains(c) || reversed.contains(c)) (choices, reversed) else (choices + c, reversed + constructor(c.rhs, c.lhs)) } }._1.toList
     }
-    evidence.map{ _._1 }.find{ _.isInstanceOf[Comparison] } match {
+    evidence.collectFirst{ case (c: Comparison, _) => c } match {
       case Some(EQ(_, _)) => binaryOpHelper(EQ(_, _), true)
       case Some(NE(_, _)) => binaryOpHelper(NE(_, _), true)
       case Some(LT(_, _)) => binaryOpHelper(LT(_, _), false)
@@ -271,17 +272,18 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     def genStmt(evidence: Iterable[(Action, Memory)], maxDepth: Int): Iterable[Stmt] = evidence.head._1 match {
       case _: Expr => genExpr(evidence, maxDepth)
       case Assign(l, _) =>
-	if (holdsOverIterable(evidence map { case (Assign(l, _), _) => l }, ((x: LVal, y: LVal) => x == y)) && (l match { case FieldAccess(ObjectID(_), _) | IntArrayAccess(ArrayID(_), _) => false case _ => true })) {  // TODO: I should really check l thoroughly, not just at the first level like this.
-	  val exprEvidence = evidence map { case (Assign(_, r), m) => (r, m) }
+	val assignEvidence = evidence map { case (a: Assign, m) => (a, m) case s => throw new RuntimeException("Unexpected stmt: " + s) }
+	if (holdsOverIterable(assignEvidence map { case (Assign(l, _), _) => l }, ((x: LVal, y: LVal) => x == y)) && (l match { case FieldAccess(ObjectID(_), _) | IntArrayAccess(ArrayID(_), _) => false case _ => true })) {  // TODO: I should really check l thoroughly, not just at the first level like this.
+	  val exprEvidence = assignEvidence map { case (Assign(_, r), m) => (r, m) }
 	  val allExprs = genExpr(exprEvidence, maxDepth) filter { _ != l }
 	  allExprs map { Assign(l, _) }
 	} else {
-	  assert(holdsOverIterable(evidence map { _._1 }, (x: Action, y: Action) => (x, y) match { case (FieldAccess(_, f1), FieldAccess(_, f2)) => f1 == f2 case _ => true }))
-	  val leftEvidence = evidence map { case (Assign(FieldAccess(l, _), _), m) => (l, m) case (Assign(l, _), m) => (l, m) }
+	  assert(holdsOverIterable(assignEvidence map { _._1 }, (x: Action, y: Action) => (x, y) match { case (FieldAccess(_, f1), FieldAccess(_, f2)) => f1 == f2 case _ => true }))
+	  val leftEvidence = assignEvidence map { case (Assign(FieldAccess(l, _), _), m) => (l, m) case (Assign(l, _), m) => (l, m) }
 	  val leftExprs = genExpr(leftEvidence, maxDepth) collect { case l: LVal => l }
-	  val rightEvidence = evidence map { case (Assign(_, r), m) => (r, m) }
+	  val rightEvidence = assignEvidence map { case (Assign(_, r), m) => (r, m) }
 	  val rightExprs = genExpr(rightEvidence, maxDepth)
-	  val field = evidence.head._1 match { case Assign(FieldAccess(_, f), _) => Some(f) case _ => None }
+	  val field = assignEvidence.head._1 match { case Assign(FieldAccess(_, f), _) => Some(f) case _ => None }
 	  for (l <- leftExprs; r <- rightExprs if l != r) yield field match { case Some(f) => Assign(FieldAccess(l, f), r) case None => Assign(l, r) }
 	}
     }
@@ -328,7 +330,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	val finalExprs = if (isPartialTrace) exprs else exprs filter { case r: Range => try { numIterations(r) == assigns.size } catch { case _ => false } }  // If isPartialTrace is true, we might see only the first iteration of a loop with more than one iteration, so we cannot check that we have the right number of iterations.
 	finalExprs map { In(v, _) }
       }
-      evidence.head._1 match {
+      (evidence.head._1: @unchecked) match {
 	case Assign(v: Var, _) => handleForLoop(v, evidence)
 	case In(v: Var, _) => handleForLoop(v, evidence)
 	case _: Expr => genExpr(evidence, depth)
@@ -657,7 +659,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
       (diffInfo, continue) match {
 	case (Some(_), true) => // The user pressed continue and there's only one possibility, so execute it.
 	case _ =>
-	  continue = false
+	  //continue = false  // TODO: Should we continue in this case or not?
 	  updateDisplay(memory, curStmt, newStmts, newBlocks, false)
 	  controller.doFixStep(diffInfo, canDiverge = !otherBranch.isDefined) match {
 	    case Step => // Do nothing, which accepts the current choice.
@@ -722,20 +724,18 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	  def doFixStepShort(diffInfo: Option[(Memory, Stmt, Value)]) = doFixStep(memory, Some(actualCurStmt), newStmts, newBlocks, diffInfo)
 	  // Handle breakpoints
 	  breakpointsToAdd foreach { breakpoint => {
-	    val origStmts = newStmts.filter{ _._2 eq breakpoint.line }.map{ _._1 }.toList
-	    breakpoints :+= { origStmts match {
+	    val origStmts = newStmts.collect{ case (k, v) if v eq breakpoint.line => k }.toList
+	    breakpoints :+= { (origStmts: @unchecked) match {
 	      case Nil => breakpoint
 	      case origStmt :: Nil => refreshBreakpointLine(breakpoint, origStmt)
-	      case _ => throw new RuntimeException("Unexpected newStmts")
 	    } }
 	  } }
 	  breakpointsToAdd = Nil
 	  breakpointsToRemove foreach { line => {
-	    val origStmts = newStmts.filter{ _._2 eq line }.map{ _._1 }.toList
-	    val origStmt = origStmts match {
+	    val origStmts = newStmts.collect{ case (k, v) if v eq line => k }.toList
+	    val origStmt = (origStmts: @unchecked) match {
 	      case Nil => line
 	      case origStmt :: Nil => origStmt
-	      case _ => throw new RuntimeException("Unexpected newStmts")
 	    }
 	    breakpoints = breakpoints filterNot { _.line eq origStmt }
 	  } }
@@ -757,7 +757,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	    case _ =>
 	  }
 	  // Handle the actual statement
-	  actualCurStmt match {
+	  (actualCurStmt: @unchecked) match {
 	    case curHole @ PossibilitiesHole(possibilities) =>
 	      def updateHoleMaps(newStmt: Stmt, actions: List[Action], userEntered: Boolean) {
 		val origHole = origHoles.getOrElse(curStmt, curStmt).asInstanceOf[PossibilitiesHole]
@@ -776,7 +776,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	      // If all possibilities yield the same result, use it.
 	      val (firstResult, firstPossMemory) = defaultExecutor.execute(memory, newPossibilities.head)
 	      if (newPossibilities.tail forall { p => yieldEquivalentResults(memory, p, firstResult, firstPossMemory) }) {
-		val action = newPossibilities.head match {  // TODO: Change top-level hole to assign with hole inside it to remove this?
+		val action = (newPossibilities.head: @unchecked) match {  // TODO: Change top-level hole to assign with hole inside it to remove this?
 		  case c @ Call(name, _) =>
 		    myprintln("Call to " + name + " got " + firstResult)
 		    c  // We must return a call and not just the value so we can re-execute it later when it is a possibility.  We choose an arbitrary call because they call get the same result
@@ -807,7 +807,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 		  // TODO: Incomplete printing help (fill in as needed).
 		  if (isFirstTry)
 		    print(indent + "Possibilities are: ")
-		  val action = newPossibilities.head match {
+		  val action = (newPossibilities.head: @unchecked) match {
 		    case Call(n, _) if functions(n).typ == UnitType =>  // For calls, print the call itself, not the result.
 		      if (isFirstTry)
 			println(iterableToString(newPossibilities, " or ", { s: Stmt => shortPrinter.stringOfStmt(s) }) + ".")
@@ -825,7 +825,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 		      if (isFirstTry)
 			println(iterableToString(newPossibilities.asInstanceOf[List[Assign]], " or ", { a: Assign => shortPrinter.stringOfStmt(Assign(a.lhs, defaultExecutor.evaluate(memory, a.rhs))) }) + ".")
 		      val prefix =
-			if (holdsOverIterable(newPossibilities map { case Assign(l, _) => l }, ((x: LVal, y: LVal) => x == y)))
+			if (holdsOverIterable(newPossibilities map { case Assign(l, _) => l case _ => throw new RuntimeException }, ((x: LVal, y: LVal) => x == y)))
 			  shortPrinter.stringOfExpr(l) + " := "
 			else
 			  ""
@@ -867,7 +867,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 		val newStmt = possibilitiesToStmt(curHole, newPossibilities filter { p => yieldEquivalentResults(memory, p, curResult, newMemory) })
 		numDisambiguations += 1
 		updateHoleMaps(newStmt, actions, true)
-		continue = false
+		//continue = false  // TODO: Should we continue in this case or not?
 		((newMemory, trace :+ curResult, newStmts + (curStmt -> newStmt), newBlocks), false)
 	      }
 	    case unseen: Unseen =>
@@ -1315,7 +1315,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 		val (pRes, pMem) = defaultExecutor.execute(memory, cur)
 		goods.find{ s => areEquivalent(pRes, s._1, pMem, s._2) } match {
 		  case Some(s) => s._3 += cur
-		  case None => goods += ((pRes, pMem, ListBuffer.empty + cur))
+		  case None => goods += ((pRes, pMem, ListBuffer[Stmt](cur)))
 		}
 	      } catch {
 		case _ => fails += cur  // Put failing possibilities together, since they could be in a loop and made failing by something that comes after them.
@@ -1581,8 +1581,9 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	    case PossibilitiesHole(possibilities) =>
 	      if (!possibilities.exists{ p => yieldEquivalentResults(mem, cur, p) })  // TODO: Check in more depth?
 		return false
-	    case next if (!(try { yieldEquivalentResults(mem, cur, next) } catch { case _ => false })) =>
-	      return false
+	    case next =>
+	      if (!(try { yieldEquivalentResults(mem, cur, next) } catch { case _ => false }))
+		return false
 	  }
 	  checkIterator(rest)
       }

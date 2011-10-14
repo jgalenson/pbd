@@ -79,6 +79,7 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
     val (predAction, predStmt, predMem) = getExprTrace(initMem.clone, false) match {
       case ExprInfo(i) => i
       case e: EndTrace => return e
+      case Fix => throw new RuntimeException
     }
     val branch = (new Executor(helperFunctions, printer)).evaluateBoolean(initMem, predAction)
     val newPredStmt = synthesizer.getCondition(code, predStmt, realInitStmt, branch)
@@ -88,6 +89,7 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
     val (newBranchActions, newBranch, joinMem) = getStmtTrace(predMem, false, true) match {
       case StmtInfo(i) => i
       case e: EndTrace => return e
+      case Fix => throw new RuntimeException
     }
 
     invokeLater{ gui.setCode(addBlock(code, (realInitStmt, None), s => UnknownJoinIf(if (branch) If(newPredStmt, newBranch, Nil, List(UnseenStmt())) else If(newPredStmt, List(UnseenStmt()), Nil, newBranch), s)), None) }

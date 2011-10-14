@@ -166,6 +166,7 @@ protected[graphprog] class Typer(functions: Map[String, Program], objectTypes: M
     case c: Comparison => BooleanType
     case Not(_) => BooleanType
     case a: Arithmetic => IntType
+    case s => throw new RuntimeException("Cannot get the type of stmt " + s + " without memory.")
   }
   protected[graphprog] def typeOfAction(a: Action, memory: Memory): Type = a match {
     case e: Expr => typeOfExpr(e, memory)
@@ -224,7 +225,7 @@ protected[graphprog] object Typer {
 
 }
 
-protected[graphprog] class GraphvizHelper {
+/*protected[graphprog] class GraphvizHelper {
 
   protected[graphprog] def toGraphvizString(stmts: List[Stmt]): String = {
     import scala.collection.mutable.ListBuffer
@@ -318,7 +319,7 @@ protected[graphprog] class GraphvizHelper {
     "digraph G {" + ("\n" + main).replaceAll("\n", "\n ") + "\n" + labels + "\n}"
   }
 
-}
+}*/
 
 object ASTUtils {
 
@@ -418,7 +419,7 @@ object ASTUtils {
 	case _ => s
       }
       def replaceStmts(ss: List[Stmt]): List[Stmt] = {
-	val firstIndex = ss findIndexOf { _ eq firstInBlock }
+	val firstIndex = ss indexWhere { _ eq firstInBlock }
 	if (firstIndex == -1)
 	  return ss map replaceStmt
 	replaced = true
@@ -426,7 +427,7 @@ object ASTUtils {
 	blockMarker._2 match {
 	  case Some(firstAfterBlock) if firstInBlock eq firstAfterBlock => pre ++ (blockMaker(Nil) :: rest)
 	  case Some(firstAfterBlock) if ss exists { _ eq firstAfterBlock } =>
-	    val afterIndex = ss findIndexOf { _ eq firstAfterBlock }
+	    val afterIndex = ss indexWhere { _ eq firstAfterBlock }
 	    val (mid, post) = rest splitAt (afterIndex - firstIndex)
 	    pre ++ (blockMaker(mid) :: post)
 	  case _ => pre :+ blockMaker(rest)

@@ -185,9 +185,9 @@ private class Menu(private val synthesisGUI: SynthesisGUI, private val controls:
       List(addPrim, addPointer).foreach{ _.setEnabled(!isExpr) }
       controls.showTraceControls()
       if (isConditional)
-	finishTrace.setLabel("Finish conditional")
+	finishTrace.setText("Finish conditional")
       else
-	finishTrace.setLabel("Finish Trace")
+	finishTrace.setText("Finish Trace")
     case Unordered => startUnordered.setEnabled(false)
     case Snapshot => starters.foreach{ _.setEnabled(false) }
     case b: BlockWithCondition =>
@@ -318,12 +318,12 @@ private class Toolbar(private val synthesisGUI: SynthesisGUI, private val contro
 	case _ => ender.setEnabled(true)
       }
       b match {
-	case Trace(_, _, false, _) => ender.setLabel("Finish trace")
-	case Trace(_, _, true, _) => ender.setLabel("End conditional")
-	case Unordered => ender.setLabel("End unordered")
-	case Snapshot => ender.setLabel("End snapshot")
-	case Conditional(_) => ender.setLabel("End conditional")
-	case Loop(_) => ender.setLabel("End iteration")
+	case Trace(_, _, false, _) => ender.setText("Finish trace")
+	case Trace(_, _, true, _) => ender.setText("End conditional")
+	case Unordered => ender.setText("End unordered")
+	case Snapshot => ender.setText("End snapshot")
+	case Conditional(_) => ender.setText("End conditional")
+	case Loop(_) => ender.setText("End iteration")
       }
   }
 
