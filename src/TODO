@@ -1,0 +1,54 @@
+Bug reports:
+! undoing with orphaned objects is broken
+- dependency on version of scala not in makefile for clean error
+- initial layout of RBTree demo arrows overlap
+- initial window size < screen resolution
+
+usage issues:
+- pointers to bottom of objects are confusing (root->left corner of node)
+E feedback on whether a state is valid given invariant/postcondition (yes, no, busy, unknown)
+- accissability placement of constants
+- when you add a value (e.g. an integer constant) and then do an action (e.g. assign to a variable), the value disappears
+- helpful tips / README that describes gui features (e.g., alt-dragging, mouse-wheel thingy)
+  - suggest (non-intrusively) possible actions when users do pointless actions (e.g. dragging an object to nowhere and dropping it -> we suggest alt-dragging to move)
+- try to give the user as much choice as possible (e.g. fix previous traces first or continue current trace then fix)
+!E When inferring conditionals, instead of not showing the old code, show it in if ? else ? unknown ? block.
+
+Features:
+- add unit tests
+H selective remove of previous traces (complicated)
+- export/import of code cases
+  - how does this effect test cases?
+- run tests from makefile
+- right click on pointer and select null
+- right click on enum and select values
+- right click on primitive var and assign value (via box)
+E add object of known type (i.e. new tree node)
+- deletion of objects
+- do we use the smallest random input?
+- custom input mode
+- support "zooming/panning" in and out of the GUI.
+- support recursions
+- support objects with methods
+- support a real language, e.g. Java
+E parser for inputs so we can try new examples more easily than making an AST.
+E? Show clickable arrows to differentiate between pointer assignments.
+- Allow going to previous statement (might be implementable in terms of save/restart trace and breakpoints)
+- Allow users to manually specify join points in addition to inferring them.
+- Allow the user to display all breakpoints (currently you have to right-click on a statement to see if there's one there)
+- We could potentially allow learned conditional breakpoints, where instead of typing the condition the user tells us whether or not to stop and we learn the boolean predicate.
+
+Framework features:
+- modularity with snapshots: allow users to skip over pieces of code and simply show the resulting memory
+- infer loops (similar to inferring conditionals)
+- scratchpads: allow users to manipulate unnamed memory cells
+- add heuristics: use heuristics to present the user with fewer choices
+- hidden statements: allow users to leave out parts of traces (e.g., induction variables)
+- support abstractions for e.g., functional programming and numeric code
+- help users develop their algorithms when they are unsure how to demonstrate it
+- ?(x,y).left = z could really be two statements (x.left = z, y.left = z) when x != y.  We should handle this kind of like we handle conditionals.
+H Allow users to add/remove missing statements.  Then re-validate all traces/inputs.  (This might be implementable in terms of save/restart trace and breakpoints.)
+- Add "warnings" when the user does something we think is wrong (e.g. two actions that are inverses).  These warnings should be non-interruptive.
+
+Refactor:
+- common test code
