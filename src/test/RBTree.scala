@@ -264,12 +264,21 @@ object RBTree {
       val z = setParentPointers(makeNode(if (allNodes.isEmpty) 1 else allNodes.map{ o => o.id }.max + 1, v, Null, Null), Null)
       List(("tree" -> tree), ("z" -> z))
     })
+    val treeInsertFilter = Some( (args: Map[String, Value]) => {
+      args("tree") != Null && args("z") != Null
+    })
+    def treeInsertPostcondition(args: Map[String, Value], resMap: Map[String, Value], rv: Value): Boolean = {
+      val postTree = resMap("tree").asInstanceOf[Object].fields("root")
+      val preList = treeToList(args("tree").asInstanceOf[Object].fields("root"))
+      val postList = treeToList(postTree)
+      checkTreeInvariant(postTree) && preList != postList && postList.isDefined && postList.forall{ l => holdsOverIterable(l, (n1: Int, n2: Int) => n1 <= n2) }
+    }
 
     val tree = simpleBinaryTree
     val z = setParentPointers(makeNode(13, 13, Null, Null), Null)
     println(stringOfTree(tree))
     println("z = " + z)
-    test(new Trace("treeInsert", UnitType, List(("tree" -> tree), ("z" -> z)), mapOfPrograms(checkTreeInvariantProgram), btreeTypes, List(
+    /*test(new Trace("treeInsert", UnitType, List(("tree" -> tree), ("z" -> z)), mapOfPrograms(checkTreeInvariantProgram), btreeTypes, List(
       Assign("y", LiteralExpr(Null)),
       Assign("x", FieldAccess("tree", "root")),
       Iterate(List(
@@ -292,7 +301,8 @@ object RBTree {
 	Conditional(LT(FieldAccess("z", "value"), FieldAccess("y", "value")), List(Assign(FieldAccess("y", "left"), "z")))
       )),
       LiteralExpr(Call("checkTreeInvariant", List(FieldAccess("tree", "root"))))
-    )), treeInsertGenerator, btreeFieldLayout, options)
+    )), treeInsertGenerator, btreeFieldLayout, options)*/
+    test("treeInsert", UnitType, List(("tree" -> tree), ("z" -> z)), treeInsertGenerator, treeInsertFilter, Some(treeInsertPostcondition), mapOfPrograms(checkTreeInvariantProgram), btreeTypes, btreeFieldLayout, options)
 
   }
 
