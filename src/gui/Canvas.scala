@@ -29,8 +29,16 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
   })
   private def modeShapes: Iterator[Shape] = mode match {
     case SelectQuery(_, _, newShapes) => newShapes.toIterator
-    case AssignQuery(_, _, _, _, newShapes) => newShapes.toIterator
+    case AssignQuery(_, _, _, _, newShapes, _) => newShapes.toIterator
     case trace: Trace => trace.newShapes.toIterator
+    case _ => Iterator.empty
+  }
+  private def modeArrows: Iterator[Arrow] = mode match {
+    case AssignQuery(_, _, _, _, _, newArrows) => newArrows.keys.toIterator
+    case _ => Iterator.empty
+  }
+  private def modeArrowsAndShapes: Iterator[(Arrow, (Shape, Shape))] = mode match {
+    case AssignQuery(_, _, _, _, _, newArrows) => newArrows.toIterator
     case _ => Iterator.empty
   }
   private def getHeapShape(value: HeapValue): HeapObject = value match {
@@ -53,7 +61,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
   private case object Observer extends InteractionMode
   private abstract class QueryMode extends InteractionMode
   private case class SelectQuery(possibilitiesSet: ISet[Shape], possibilitiesMap: IMap[Shape, List[Action]], newShapes: ISet[Shape]) extends QueryMode
-  private case class AssignQuery(possibilities: IMap[Shape, IMap[Shape, List[Action]]], lefts: ISet[Shape], rights: ISet[Shape], rightMap: IMap[Shape, ISet[Shape]], newShapes: ISet[Shape]) extends QueryMode
+  private case class AssignQuery(possibilities: IMap[Shape, IMap[Shape, List[Action]]], lefts: ISet[Shape], rights: ISet[Shape], rightMap: IMap[Shape, ISet[Shape]], newShapes: ISet[Shape], newArrows: IMap[Arrow, (Shape, Shape)]) extends QueryMode
   private abstract class Trace extends InteractionMode { val newShapes: Set[Shape] }
   private case class StmtTrace(actions: ListBuffer[Action], var curBlocks: List[TraceBlock], loops: Map[Iterate, Loop], newShapes: Set[Shape], var initMem: Memory, joinFinder: Option[(List[Action] => Option[List[Stmt]])]) extends Trace  // curBlocks has inner blocks at the beginning, initMem is  clone of memory after finishing the previous statement.
   private case class ExprTrace(newShapes: Set[Shape]) extends Trace  // Currently only for boolean expressions: see comment in doExpr.  This would be easy to change if necessary (probably just add type as ivar).
@@ -101,14 +109,14 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
   private val pointees = Map.empty[Option[Shape], Set[Arrow]]
   private def getArrowsTo(shape: Shape): Iterable[Arrow] = {
     def arrowsToShape(shape: Shape) = pointees.getOrElse(Some(shape), Nil.asInstanceOf[Iterable[Arrow]])
-    arrowsToShape(shape) ++ modeShapes.toList.flatMap(arrowsToShape)
+    arrowsToShape(shape) ++ modeShapes.toList.flatMap(arrowsToShape) ++ modeArrowsAndShapes.collect{ case (a, (_, d)) if d eq shape => a }
   }
-  @tailrec private def getArrowsFrom(shape: Shape): Iterable[Arrow] = shape match {
+  private def getArrowsFrom(shape: Shape): Iterable[Arrow] = (shape match {
     case p @ Pointer(_, a, _, _, _, _) => a :: diffArrowMap.getOrElse(p, Nil)
     case call: FuncCall => call.getAllArrows()
     case c: Child[_, _] => getArrowsFrom(c.child)
     case _ => Nil
-  } 
+  }) ++ modeArrowsAndShapes.collect{ case (a, (s, _)) if s eq shape => a }
   private val arrowSources = Map.empty[Arrow, Shape]
   private def arrows = pointees.flatMap{ kv => kv._2 }
   // IVars for tooltip
@@ -130,11 +138,12 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
       smartRepaintBounds(List(initialBounds, boundsOfArrow(arrow)))
     }
     def getBounds(held: HeldShape): List[Rectangle] = (held, mode) match {
-      case (Mutation(heldCopy @ Shadow(heldOrig, _, _)), AssignQuery(possibilitiesMap, lefts, rights, rightMap, _)) =>
+      case (Mutation(heldCopy @ Shadow(heldOrig, _, _)), AssignQuery(possibilitiesMap, lefts, rights, rightMap, _, newArrows)) =>
 	val invalidLefts = lefts -- rightMap(heldOrig)  // These change from red to black (things that cannot be assigned this).
 	val invalidRights = rights -- rightMap(heldOrig) - heldOrig  // These change from green to black.
 	val doubleLefts = rights.filter{ rhs => possibilitiesMap.contains(rhs) && possibilitiesMap(rhs).contains(heldOrig) }  // These change from green to red (things that are on some RHS and this LHS).
-	(List(heldCopy, heldOrig) ++ invalidLefts ++ invalidRights ++ doubleLefts).map(boundsOfShape _)
+	val arrowEndpoints = newArrows.flatMap{ case (_, (s, d)) => List(s, d) }
+	(List(heldCopy, heldOrig) ++ invalidLefts ++ invalidRights ++ doubleLefts ++ arrowEndpoints).map(boundsOfShape _)
       case (Mutation(heldCopy @ Shadow(heldOrig, _, _)), mode: Trace) =>
 	List(boundsOfShape(heldCopy), boundsOfShape(heldOrig)) ++ allShapes.filter{ shape => canReceive(shape, heldOrig, mode) }.map(boundsOfShape)
       case (FlyingArrow(arrow), mode: Trace) =>
@@ -167,13 +176,16 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
       override def mouseMoved(e: MouseEvent) {
 	assert (held == NoHeld)
 	val (x, y) = (e.getX(), e.getY())
-	val (validShapes, actionFn) = (mode: @unchecked) match {
-	  case SelectQuery(s, m, _) => (s, (s: Shape) => m(s))
-	  case AssignQuery(m, lSet, rSet, r, _) => (lSet ++ rSet, (s: Shape) => ((if (lSet.contains(s)) m(s).values.flatten.toList else Nil) ++ (if (rSet.contains(s)) r(s).flatMap{ l => m(l)(s) }.toList else Nil)).distinct)
+	val (validShapes, validArrows, shapeActionFn, arrowActionFn) = (mode: @unchecked) match {
+	  case SelectQuery(s, m, _) => (s, IMap.empty[Arrow, Set[(Shape, Shape)]], (s: Shape) => m(s), (a: Arrow) => List.empty[Action])
+	  case AssignQuery(m, lSet, rSet, r, _, newArrows) => (lSet ++ rSet, newArrows, (s: Shape) => ((if (lSet.contains(s)) m(s).values.flatten.toList else Nil) ++ (if (rSet.contains(s)) r(s).flatMap{ l => m(l)(s) }.toList else Nil)).distinct, (a: Arrow) => newArrows(a) match { case (l, r) => m(l)(r) })
 	}
-	def addTooltip(s: Shape) {
+	def addTooltip(sa: Either[Shape, Arrow]) {
 	  val g = e.getComponent().getGraphics()
-	  val msgs = actionFn(s).map{ a => printer.stringOfAction(a) }.foldLeft(List[String]()){ case (revLines, cur) => revLines match {
+	  val msgs = (sa match {
+	    case Left(s) => shapeActionFn(s)
+	    case Right(a) => arrowActionFn(a)
+	  }).map{ a => printer.stringOfAction(a) }.foldLeft(List[String]()){ case (revLines, cur) => revLines match {
 	    case Nil => List(cur)
 	    case curLine :: rest =>
 	      val next = curLine + " or " + cur
@@ -182,17 +194,21 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	      else
 		("or " + cur) :: revLines
 	  } }.reverse
-	  val t = Tooltip(msgs, s, x, y + TOOLTIP_VOFFSET, msgs.map{ s => stringWidth(g, s) }.max, msgs.map{ s => heightOfString(s, g) }.sum)
+	  val t = Tooltip(msgs, sa match { case Left(s) => s case Right(a) => null }, x, y + TOOLTIP_VOFFSET, msgs.map{ s => stringWidth(g, s) }.max, msgs.map{ s => heightOfString(s, g) }.sum)
 	  tooltip = Some(t)
 	  smartRepaint(boundsOfShape(t))
 	}
-	(tooltip, findLegalInnerShape(x, y, validShapes)) match {
-	  case (Some(t), Some(s)) if (t.shape eq s) => moveShapeAndRepaint(t, x - t.x, y - t.y + TOOLTIP_VOFFSET)
-	  case (Some(t), Some(s)) =>
+	(tooltip, findLegalInnerShape(x, y, validShapes), findArrowBodies(x, y, validArrows.keys)) match {
+	  case (Some(t), Some(s), _) if (t.shape eq s) => moveShapeAndRepaint(t, x - t.x, y - t.y + TOOLTIP_VOFFSET)
+	  case (Some(t), Some(s), _) =>
 	    removeTooltip(t)
-	    addTooltip(s)
-	  case (Some(t), None) => removeTooltip(t)
-	  case (None, Some(s)) if validShapes.contains(s) => addTooltip(s)
+	    addTooltip(Left(s))
+	  case (Some(t), None, arrows) if arrows.nonEmpty =>
+	    removeTooltip(t)
+	    addTooltip(Right(arrows.head))
+	  case (Some(t), None, _) => removeTooltip(t)
+	  case (None, Some(s), _) if validShapes.contains(s) => addTooltip(Left(s))
+	  case (None, None, arrows) if arrows.nonEmpty => addTooltip(Right(arrows.head))
 	  case _ =>
 	}
       }
@@ -253,7 +269,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	  return
 	val (x, y) = (e.getX(), e.getY())
 	val newHeld = (mode, e.isAltDown()) match {
-	  case (AssignQuery(_, _, rights, _, _), false) => findLegalInnerShape(x, y, rights) match {
+	  case (AssignQuery(_, _, rights, _, _, _), false) => findLegalInnerShape(x, y, rights) match {
 	    case Some(s) if rights.contains(s) => Mutation(Shadow(s, s.x, s.y))
 	    case _ => NoHeld
 	  }
@@ -289,7 +305,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	val origBounds = getBounds(held)  // We need to precompute this, since if something used to point to null and then gets assigned to something, we lose that it could be assigned to anything before.
 	if (x != startX || y != startY) {  // Only fire for releases when the mouse has moved; mouseClicked handles the other case.
 	  (held, mode) match {
-	    case (Mutation(Shadow(held, _, _)), AssignQuery(possibilitiesMap, _, _, rightMap, _)) => findShape(x, y, rightMap(held)) match {
+	    case (Mutation(Shadow(held, _, _)), AssignQuery(possibilitiesMap, _, _, rightMap, _, _)) => findShape(x, y, rightMap(held)) match {
 	      case Some(receiver) if possibilitiesMap(receiver).contains(held) => possibilitySelected(possibilitiesMap(receiver)(held))
 	      case _ =>
 	    }
@@ -332,11 +348,25 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	  return
 	mode match {
 	  case SelectQuery(possibilitiesSet, possibilitiesMap, _) => findLegalInnerShape(e.getX(), e.getY(), possibilitiesSet) foreach { selected => possibilitySelected(possibilitiesMap(selected)) }
-	  case AssignQuery(possibilitiesMap, lefts, rights, _, _) =>
-	    if (lefts.size == 1)
-	      findLegalInnerShape(e.getX(), e.getY(), rights) foreach { selected => possibilitySelected(possibilitiesMap.head._2(selected)) }  // Allow users to simply click on the rhs when there is only one lhs.
-	    else if (rights.size == 1)
-	      findLegalInnerShape(e.getX(), e.getY(), lefts) foreach { selected => possibilitySelected(possibilitiesMap(selected).head._2) }  // Allow users to simply click on the lhs when there is only one rhs.
+	  case AssignQuery(possibilitiesMap, lefts, rights, _, _, newArrows) =>
+	    val shapeClicked = 
+	      if (lefts.size == 1) {
+		val shapes = findLegalInnerShape(e.getX(), e.getY(), rights)
+		shapes foreach { selected => possibilitySelected(possibilitiesMap.head._2(selected)) }  // Allow users to simply click on the rhs when there is only one lhs.
+		shapes.isDefined
+	      } else if (rights.size == 1) {
+		val shapes = findLegalInnerShape(e.getX(), e.getY(), lefts)
+		shapes foreach { selected => possibilitySelected(possibilitiesMap(selected).head._2) }  // Allow users to simply click on the lhs when there is only one rhs.
+		shapes.isDefined
+	      } else
+		false
+	    if (!shapeClicked)
+	      findArrowBodies(e.getX(), e.getY(), newArrows.keys).headOption match {
+		case Some(arrow) =>
+		  val (l, r) = newArrows(arrow)
+		  possibilitySelected(possibilitiesMap(l)(r))
+		case None =>
+	      }
 	  case mode: Trace => findInnerShape(e.getX(), e.getY(), toplevelShapes ++ modeShapes) foreach { shape => doExpr(mode, shape) }
 	  case _ =>
 	}
@@ -384,11 +414,11 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
   private def getAllBounds(shape: Shape): Iterable[Rectangle] = List(boundsOfShape(shape)) ++ getArrowsTo(shape).map(boundsOfArrow) ++ (shape match {
     case src @ Pointer(_, a, _, _, _, _) => List(boundsOfArrow(a))
     case shape @ IntArr(IntArray(id, _), _, _, _, _) => (arrLens(id) :: arrElems(id)).flatMap{ f => getAllBounds(f.child) }  // We check the children since calls might point to them.
-    case shape @ Obj(Object(id, _, fs), _, _, _, _) => fields(id).values.flatMap{ f => getAllBounds(f.child) }  // We check the children since some might be pointers with arrows.
+    case shape @ Obj(Object(id, _, fs), _, _, _, _) => fields(id).values.flatMap{ f => getAllBounds(f.child) ++ getArrowsFrom(f).map(boundsOfArrow) }  // We check the children since some might be pointers with arrows.
     case call @ FuncCall(_, _, _, _, _, _, _, _, _, true) => call.getAllArrows().map{ arrow => boundsOfArrow(arrow) }
     case c: Child[_, _] => getAllBounds(c.parent)
     case _ => Nil
-  })
+  }) ++ getArrowsFrom(shape).map(boundsOfArrow)
   private def canReceive(lhs: Shape, rhs: Shape, mode: Trace): Boolean = {
     def isUnfinishedCall(s: Shape) = s match {
       case FuncCall(_, _, None, _, _, _, _, _, _, _) => true
@@ -522,6 +552,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     val drawShapes = toplevelShapes ++ newDiffShapes.toIterator ++ tooltip.toIterator
     drawShapes.foreach{ shape => draw(g2d, shape, getChildren, colorer, arrowColorer) }
     diffArrows.foreach{ arrow => { drawArrow(g2d, arrow, arrowColorer) } }
+    modeArrows.foreach{ arrow => { drawArrow(g2d, arrow, arrowColorer) } }
   }
 
   /**
@@ -933,6 +964,22 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     //arrows.collect{ case a if arrowIsClicked(a) => (a, arrowAngle(a)) }.foldLeft(List[(Arrow, Double)]()){ (acc, cur) => if (acc.isEmpty || cur._2 < acc.head._2) List(cur) else if (acc.nonEmpty && cur._2 == acc.head._2) acc :+ cur else acc }.map{ _._1 }
     arrows.filter(arrowIsClicked).toList.sortBy{ a => arrowAngle(a) }
   }
+  private def findArrowBodies(x: Int, y: Int, arrows: Iterable[Arrow]): List[Arrow] = {
+    import math._
+    def distanceFromArrow(a: Arrow): Int = {
+      val minX = min(a.srcX, a.dstX)
+      val maxX = max(a.srcX, a.dstX)
+      val minY = min(a.srcY, a.dstY)
+      val maxY = max(a.srcY, a.dstY)
+      if (x < minX - 5 || x > maxX + 5 || y < minY - 5 || y > maxY + 5)
+	return Int.MinValue
+      val yOffset = ((x - minX).toDouble / (maxX - minX)) * (maxY - minY)
+      val targetY = if ((a.srcX <= a.dstX && a.srcY <= a.dstY) || (a.srcX >= a.dstX && a.srcY >= a.dstY)) minY + yOffset else maxY - yOffset
+	
+      return abs(y.toDouble - targetY).toInt
+    }
+    arrows.map{ a: Arrow => (a, distanceFromArrow(a)) }.filter{ case (_, d) => d >= 0 && d <= 5 }.toList.sortBy{ _._2 }.map{ _._1 }
+  }
   private def boundsOfShape(s: Shape): Rectangle = new Rectangle(s.x, s.y, s.width, s.height)
 
   private def isOffscreen(x: Int, y: Int, w: Int, h: Int): Boolean = x < 0 || x + w > getWidth() || y < 0 || y + h > getHeight()
@@ -1024,15 +1071,39 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	val possibilitiesSet = possibilitiesMap.keySet.toSet
 	mode = SelectQuery(possibilitiesSet, possibilitiesMap, newShapes.toSet)
       case _: Assign =>
-	val (possibilitiesMap, rightMap) = possibilities.foldLeft((IMap.empty[Shape, IMap[Shape, List[Action]]], IMap.empty[Shape, ISet[Shape]])){ case ((accl, accr), cur @ Assign(lhs, rhs)) => {
+	def shapeToPointer(s: Shape): Option[Pointer] = s match {
+	  case p: Pointer => Some(p)
+	  case c: Child[_, _] => shapeToPointer(c.child)
+	  case _ => None
+	}
+	def shapeToPointee(s: Shape): Shape = s match {
+	  case Pointer(_, Arrow(_, None, _, _, _, _, _), _, _, _, _) => nulls.head
+	  case Pointer(_, Arrow(_, Some(target), _, _, _, _, _), _, _, _, _) => shapeToPointee(target)
+	  case c: Child[_, _] => shapeToPointee(c.child)
+	  case _ => s
+	}
+	val shapesToArrow = Map.empty[(Shape, Shape), Arrow]
+	val (possibilitiesMap, rightMap, arrows) = possibilities.foldLeft((IMap.empty[Shape, IMap[Shape, List[Action]]], IMap.empty[Shape, ISet[Shape]], IMap.empty[Arrow, (Shape, Shape)])){ case ((accl, accr, arrows), cur @ Assign(lhs, rhs)) => {
 	  val lhsShape = getShape(lhs, true)
 	  val rhsShape = getShape(rhs, false)
+	  val newArrows = shapeToPointer(lhsShape).map{ p => {
+	    val p = shapeToPointer(lhsShape).get
+	    val target = shapeToPointee(rhsShape)
+	    shapesToArrow.get((p, target)) match {
+	      case Some(a: Arrow) => arrows
+	      case None => 
+		val arrow = makeArrow(p.x, p.y, p.width, p.height, Some(target))
+		addArrow(arrow, p)
+		shapesToArrow += ((p, target) -> arrow)
+		arrows + (arrow -> (lhsShape, rhsShape))
+	    }
+	  } }.getOrElse(arrows)
 	  val leftInnerMap = accl.getOrElse(lhsShape, IMap.empty[Shape, List[Action]])
-	  (accl + (lhsShape -> (leftInnerMap + (rhsShape -> (cur :: leftInnerMap.getOrElse(rhsShape, Nil))))), accr + (rhsShape -> (accr.getOrElse(rhsShape, ISet.empty[Shape]) + lhsShape)))
+	  (accl + (lhsShape -> (leftInnerMap + (rhsShape -> (cur :: leftInnerMap.getOrElse(rhsShape, Nil))))), accr + (rhsShape -> (accr.getOrElse(rhsShape, ISet.empty[Shape]) + lhsShape)), newArrows)
 	} case _ => throw new RuntimeException }
 	val lefts = possibilitiesMap.keySet.toSet
 	val rights = possibilitiesMap.values.foldLeft(ISet.empty[Shape]){ (acc, cur) => acc ++ cur.keySet }
-	mode = AssignQuery(possibilitiesMap, lefts, rights, rightMap, newShapes.toSet)
+	mode = AssignQuery(possibilitiesMap, lefts, rights, rightMap, newShapes.toSet, arrows)
     }
     addMouseMotionListener(tooltipListener)
     addMouseMotionListener(callHoverListener)
@@ -1057,17 +1128,18 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
   private val colorer: PartialFunction[Shape, Color] = shape => { (held, mode) match {
     case (Mutation(heldCopy @ Shadow(heldOrig, _, _)), _) if shape.eq(heldOrig) || shape.eq(heldCopy) => SHADOW_COLOR
     case (_, SelectQuery(possibilities, _, _)) if possibilities.contains(shape) => POSSIBILITY_COLOR
-    case (Mutation(Shadow(held, _, _)), AssignQuery(possibilitiesMap, lefts, _, _, _)) if lefts.contains(shape) && possibilitiesMap(shape).contains(held) => RECEIVER_COLOR  // If we're holding a rhs, only color red the things that can receive it.
-    case (_: NonMutation, AssignQuery(possibilitiesMap, lefts, _, _, _)) if lefts.contains(shape) => RECEIVER_COLOR
-    case (_: NonMutation, AssignQuery(_, _, rights, _, _)) if rights.contains(shape) => POSSIBILITY_COLOR
+    case (Mutation(Shadow(held, _, _)), AssignQuery(possibilitiesMap, lefts, _, _, _, _)) if lefts.contains(shape) && possibilitiesMap(shape).contains(held) => RECEIVER_COLOR  // If we're holding a rhs, only color red the things that can receive it.
+    case (_: NonMutation, AssignQuery(possibilitiesMap, lefts, _, _, _, _)) if lefts.contains(shape) => RECEIVER_COLOR
+    case (_: NonMutation, AssignQuery(_, _, rights, _, _, _)) if rights.contains(shape) => POSSIBILITY_COLOR
     case (Mutation(Shadow(held, _, _)), mode: Trace) if canReceive(shape, held, mode) => RECEIVER_COLOR
     case (FlyingArrow(arrow), mode: Trace) if shape.isInstanceOf[HeapObject] && canReceive(arrowSources(arrow), shape, mode) => RECEIVER_COLOR
     case (_, _) if diffShapes.contains(shape) || newDiffShapes.contains(shape) => NEW_DIFF_COLOR
   }}
-  private val arrowColorer: PartialFunction[Arrow, Color] = arrow => arrow match {
-    case Arrow(_, _, _, _, _, _, true) => SHADOW_COLOR
-    case a: Arrow if diffArrows.contains(a) => NEW_DIFF_COLOR
-    case a: Arrow if oldDiffArrows.contains(a) => OLD_DIFF_COLOR
+  private val arrowColorer: PartialFunction[Arrow, Color] = arrow => (arrow, mode) match {
+    case (Arrow(_, _, _, _, _, _, true), _) => SHADOW_COLOR
+    case (a: Arrow, _) if diffArrows.contains(a) => NEW_DIFF_COLOR
+    case (a: Arrow, _) if oldDiffArrows.contains(a) => OLD_DIFF_COLOR
+    case (a: Arrow, AssignQuery(_, _, _, _, _, arrows)) if arrows.contains(a) => POSSIBILITY_COLOR
   }
 
   def startStmtTraceMode(memory: Memory) {
