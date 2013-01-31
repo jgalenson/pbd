@@ -1036,7 +1036,8 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	  case Some(newInput) =>  // We found no legal join points before, so we re-execute the original branch we saw to find the exact join.
 	    println("Aborting trace to fill a conditional.  We'll continue with this or another trace if necessary when this finishes.")
 	    controller.displayMessage("Aborting trace to fill a conditional.  We'll continue with this or another trace if necessary when this finishes.")
-	    getTraceWithHelpFromUser(code, newInput, pruneAfterUnseen, amFixing, None, Some((realCurStmt, uif)))
+	    val newerCode = getTraceWithHelpFromUser(code, newInput, pruneAfterUnseen, amFixing, None, Some((realCurStmt, uif)))
+	    prune(newerCode, 0, Some(inputs)).getOrElse{ newerCode }  // If this input has no successful path, the pruning will continue it.  If it has a successful path but needs disambiguation, we drop it and try to find something else.
 	  case None => throw new SolverError("Cannot find previous input that brings me to a branch of a conditional I've already seen.")
 	}
 	case _ =>
@@ -1190,7 +1191,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 
   // TODO/FIXME: I should really also show these input/output pairs to the user and ask if they're correct.  For example, if we don't have a postcondition, this might be very necessary.
   private def checkProgram(code: List[Stmt]): Option[(List[(String, Value)], Boolean)] = {
-    @tailrec def doCheck(curRound: Int): Option[(List[(String, Value)], Boolean)] = {
+    /*@tailrec */def doCheck(curRound: Int): Option[(List[(String, Value)], Boolean)] = {
       if (curRound == NUM_FINAL_CHECKS)
 	None
       else {
@@ -1250,8 +1251,11 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     val (code, isFinished) = synthesizeRec(stmts)
     controller.clearDisplay(code)
     val numTraces = allInputs.size
+    numUnseensFilled -= 1
     val numQueries = numDisambiguations + numUnseensFilled
-    println("Asked " + numQueries + " " + pluralize("query", "queries", numQueries) + " (" + numDisambiguations + " disambiguation and " + numUnseensFilled + " unseen)" + " in " + numTraces + " " + pluralize("trace", "traces", numTraces) + " with " + numCodeFixes + " " + pluralize("fix", "fixes", numCodeFixes) + ".")
+    println(Console.RED + "***" + Console.RESET + "Asked " + numQueries + " " + pluralize("query", "queries", numQueries) + " (" + numDisambiguations + " disambiguation and " + numUnseensFilled + " unseen)" + " in " + numTraces + " " + pluralize("trace", "traces", numTraces) + " (" + allInputs.toSet.size + " unique) with " + numCodeFixes + " " + pluralize("fix", "fixes", numCodeFixes) + ".")
+    for (input <- allInputs)
+      println(longPrinter.stringOfInputs(input, ";"))
     // TODO: Handle this case better.  Should I display program with holes or the guessed one?
     val finalProgram = Program(name, typ, inputTypes, functions, objectTypes, code)
     if (isFinished) {
@@ -1286,12 +1290,28 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
    * that speed it up in practice.
    */
   private def prunePossibilities(code: List[Stmt]): List[Stmt] = {
-    import scala.collection.mutable.HashSet
-    case object AbortOnUnknown extends Value with IsErrorOrFailure
+    @tailrec def pruneLoop(code: List[Stmt], curRound: Int): List[Stmt] = {
+      if (curRound == NUM_PRUNING_ROUNDS || isComplete(code))
+	code
+      else {
+	prune(code, curRound / NUM_PRUNING_ROUNDS.toDouble, None) match {
+	  case Some(newCode) => pruneLoop(newCode, curRound + 1)
+	  case None => code
+	}
+      }
+    }
+    // First, do some fast input pruning to try to reduce the space of the input size, and then do slower full pruning, then do some fast input pruning again to take advantage of any new possibilities the full pruning might have pruned.
+    doInputPruning(pruneLoop(doInputPruning(code), 0))
+  }
+
+  private def doInputPruning(code: List[Stmt]) = (0 until NUM_PRUNING_ROUNDS).foldLeft(code){ (code, i) => val input = findFirstNewRandomInput(code, i / NUM_PRUNING_ROUNDS.toDouble); if (input.isDefined) simpleInputPruning(code, input.get)._1 else code }
+
     // Returns None if it cannot prune the program and there is no point in trying again (e.g. it cannot generate a good input).
-    def prune(code: List[Stmt], progress: Double): Option[List[Stmt]] = {
+    private def prune(code: List[Stmt], progress: Double, inputOpt: Option[List[(String, Value)]]): Option[List[Stmt]] = {
+      import scala.collection.mutable.HashSet
+      case object AbortOnUnknown extends Value with IsErrorOrFailure
       // Get an input that (a) does not fail the precondition and (b) differentiates between at least one possibility.
-      val input = findFirstNewRandomInput(code, progress).getOrElse{ return None }
+      val input = inputOpt.getOrElse{ findFirstNewRandomInput(code, progress).getOrElse{ return None } }
       // Do some (fast) simple input pruning, which if it works can greatly reduce the search space.
       val prunedCode = simpleInputPruning(code, input)._1
       val newPossibilitiesMap = {
@@ -1371,7 +1391,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 		return (true, false)
 	      if (legalHoles.forall{ h => successfulChoices.contains(h) && successfulChoices(h).size == h.possibilities.size })
 		return (true, false)
-	    //case Timeout => println("Timeout on path " + iterableToString(path, ", ", (t: (PossibilitiesHole, Stmt)) => shortPrinter.stringOfStmt(t._2)))
+	    //case Timeout => println("Timeout on path " + iterableToString(path, ", ", (t: (PossibilitiesHole, ListBuffer[List[Stmt]])) => shortPrinter.stringOfStmts(t._2(0))))
 	    // Note that I'm counting executions that timeout as failing which isn't sound but hopefully won't be a problem.
 	    case _ => ()
 	  }
@@ -1399,30 +1419,20 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	val (hasSuccessfulPath, canPrune) = explorePossibilitySpace()
 	//println("Explored " + numPaths + " paths")
 	//println("Explored " + numPaths + " paths in " + (new java.text.SimpleDateFormat("mm:ss.S")).format(new java.util.Date(System.currentTimeMillis() - startTime)))
-	if (!hasSuccessfulPath)
-	  return Some(fixCode(prunedCode, "the program has no successful paths on this input", input, None))
-	else if (canPrune)
+	if (!hasSuccessfulPath) {
+	  val newerCode = doInputPruning(prunedCode)  // First try to do input pruning, as if it finds something that needs a fix, it's a crash, so we're guaranteed no disambiguation questions before it, while this input might have disambiguation questions.
+	  if (newerCode == prunedCode)
+	    return Some(fixCode(prunedCode, "the program has no successful paths on this input", input, None))
+	  else
+	    return Some(newerCode)
+	} else if (canPrune)
 	  successfulChoices.filterKeys{ h => legalHoles contains h }.toMap.mapValues{ _.toSet }
 	else
 	  IMap[PossibilitiesHole, Set[Stmt]]()
       }
       //println(newPossibilitiesMap)
-      Some(updateHoles(prunedCode, newPossibilitiesMap))
+      Some(updateHoles(prunedCode, newPossibilitiesMap, "full"))
     }
-    @tailrec def pruneLoop(code: List[Stmt], curRound: Int): List[Stmt] = {
-      if (curRound == NUM_PRUNING_ROUNDS || isComplete(code))
-	code
-      else {
-	prune(code, curRound / NUM_PRUNING_ROUNDS.toDouble) match {
-	  case Some(newCode) => pruneLoop(newCode, curRound + 1)
-	  case None => code
-	}
-      }
-    }
-    def doInputPruning(code: List[Stmt]) = (0 until NUM_PRUNING_ROUNDS).foldLeft(code){ (code, i) => val input = findFirstNewRandomInput(code, i / NUM_PRUNING_ROUNDS.toDouble); if (input.isDefined) simpleInputPruning(code, input.get)._1 else code }
-    // First, do some fast input pruning to try to reduce the space of the input size, and then do slower full pruning, then do some fast input pruning again to take advantage of any new possibilities the full pruning might have pruned.
-    doInputPruning(pruneLoop(doInputPruning(code), 0))
-  }
 
   /**
    * Prunes the given program by executing it on the given input as far as we
@@ -1463,7 +1473,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     } else if (newPossibilitiesMap.isEmpty)
       (code, errorOrFailure)
     else
-      (updateHoles(code, newPossibilitiesMap.toMap.mapValues{ _.toSet }), errorOrFailure)
+      (updateHoles(code, newPossibilitiesMap.toMap.mapValues{ _.toSet }, "fast"), errorOrFailure)
   }
 
   /**
@@ -1473,7 +1483,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
    * possibilities.  If there is only one possibility, with replace the whole
    * with it.
    */
-  private def updateHoles(code: List[Stmt], newPossibilitiesMap: IMap[PossibilitiesHole, Set[Stmt]]): List[Stmt] = {
+  private def updateHoles(code: List[Stmt], newPossibilitiesMap: IMap[PossibilitiesHole, Set[Stmt]], typ: String): List[Stmt] = {
     if (newPossibilitiesMap.isEmpty)
       return code
     def pruneList(l: List[Stmt]): List[Stmt] = {
@@ -1486,7 +1496,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	    val newStmt = possibilitiesToExpr(newPossibilities, throw new SolverError("All possibilities pruned for hole " + h))
 	    origHoles += (newStmt -> origHoles.getOrElse(h, h))
 	    origHoles -= h
-	    println("Pruned hole " + shortPrinter.stringOfHole(h) + " to " + shortPrinter.stringOfStmt(newStmt))
+	    println("Pruned (" + typ + ") hole " + shortPrinter.stringOfHole(h) + " to " + shortPrinter.stringOfStmt(newStmt))
 	    newStmt
 	  } else
 	    h
@@ -1527,7 +1537,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	  results.head._1
 	case _: UnseenExpr if hole eq unseen =>
 	  val v = BooleanConstant(!branch)
-	  evidence += ((v, memory))
+	  evidence += ((v, memory.clone))  // We clone the memory because the rest of the execution could leave scopes and remove variables.
 	  ErrorConstant
       }
       val executor = new Executor(functions, longPrinter, holeHandler)
@@ -1643,7 +1653,7 @@ object Synthesis {
   // Probability we set an object to null.
   private val NULL_PROBABILITY = 0.25
   // Number of pruning rounds.
-  private val NUM_PRUNING_ROUNDS = 10
+  private val NUM_PRUNING_ROUNDS = 20
   // Timeout in ms when running programs during pruning.
   private val TIMEOUT = 200
   // Number of inputs to try when we have a final program to try to ensure that we're not missing a conditional.
