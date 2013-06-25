@@ -161,7 +161,7 @@ protected[gui] object Shape {
       g.setFont(FONT)
       drawTextCentered(str, x, y, w, h)
     }
-    val curColor = (colorer.orElse((shape: Shape) => shape match { case _ => DEFAULT_COLOR }))(shape)
+    val curColor = (colorer.orElse[Shape, Color]{ case (shape: Shape) => DEFAULT_COLOR })(shape)
     if (parent.isEmpty && !isShadow)
       g.setColor(curColor)
     shape match {
