@@ -1,7 +1,11 @@
-default: build testrule
+default: slow testrule
 
+slow:
+	echo "Building..."
+	mkdir -p classes
+	scalac -deprecation -unchecked -d classes *.scala */*.scala
 
-build:
+fast:
 	echo "Building..."
 	mkdir -p classes
 	fsc -deprecation -unchecked -d classes *.scala */*.scala

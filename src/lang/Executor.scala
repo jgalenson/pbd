@@ -165,7 +165,7 @@ class Executor(private val functions: Map[String, Program], private val printer:
     }
     runLoop()
   }
-  private def eval(memory: Memory, e: Expr): Value = {
+  protected def eval(memory: Memory, e: Expr): Value = {
     //println("Evaluating " + printer.stringOfExpr(e) + " with memory " + printer.stringOfMemory(memory))
     def handleIntComparison(l: Expr, r: Expr, op: (Int, Int) => Boolean): Value = {
       val lhs = eval(memory, l)
