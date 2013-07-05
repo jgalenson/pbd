@@ -19,54 +19,57 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
       assert(holdsOverIterable(evidence, (x: (Action, Memory), y: (Action, Memory)) => x._1 == y._1))
       return List(evidence.head._1.asInstanceOf[LiteralExpr].e)
     }
-    val targetType = typer.typeOfAction(evidence.head._1, evidence.head._2)
-    val memory = evidence.head._2  // We only use this to get the type of a variable, so we don't care which memory we get, as all should have the same type.
-    val vars = memory.keys map { s => Var(s) }
+    val equivalences = MHashMap.empty[Memory, MHashMap[Value, ListBuffer[Expr]]]
     def genAllExprsRec(depth: Int): List[Expr] = {
       def pairs[T1, T2](l1: List[T1], l2: List[T2]): List[(T1, T2)] = for (e1 <- l1; e2 <- l2) yield (e1, e2)
-      def canBeSameType(t1: Type, t2: Type): Boolean = (t1, t2) match {
-	case (ObjectType(n1), ObjectType(n2)) => n1 == n2 || n1 == "null" || n2 == "null"  // I somtimes call this with t2 == targetType, which would be null when I want something non-null, so if either is null, accept it
-	case (_, _) => t1 == t2
-      }
-      def exprHasType(e: Expr, t: Type): Boolean = canBeSameType(typer.typeOfExpr(e, memory), t)
-      if (depth > maxDepth)
-	return Nil
-      val constants = (targetType, depth) match {
-	case (BooleanType, 0) => List(BooleanConstant(true), BooleanConstant(false))
-	case (IntType, 0) => List(IntConstant(0), IntConstant(1), IntConstant(2))
-	case (_: ObjectType, 0) => List(Null)
-	case (_, _) => List(IntConstant(1), IntConstant(2), BooleanConstant(true), BooleanConstant(false), Null)
-      }
-      val curVariables = if (depth == 0) vars filter { v => exprHasType(v, targetType) } else vars
-      val nextLevel = genAllExprsRec(depth + 1)
-      val binaryOps = pairs(nextLevel, nextLevel) flatMap { t => t match {
-	// Reduce the number of possibilities by ignoring duplicates, unnecessary ops, etc.
-	case (e, IntConstant(1)) if !e.isInstanceOf[IntConstant] && typer.typeOfExpr(e, memory) == IntType && (targetType == IntType || depth > 0) => List(Plus(e, IntConstant(1)), Minus(e, IntConstant(1)))
-	case (IntConstant(n1), IntConstant(n2)) if n1 == n2 => Nil
-	case (Var(n1), Var(n2)) if n1 == n2 && typer.typeOfValue(memory(n1)) == IntType && typer.typeOfValue(memory(n2)) == IntType && (targetType == IntType || depth > 0) => List(Times(t._1, t._2))
-	case (IntConstant(_), _) => Nil  // Prefer the other direction
-	case (e1, e2) if  (targetType == IntType || depth > 0) && typer.typeOfExpr(e1, memory) == IntType && typer.typeOfExpr(e2, memory) == IntType => (if (e2.isInstanceOf[IntConstant] || shortPrinter.stringOfExpr(e1) < shortPrinter.stringOfExpr(e2)) List(Plus(t._1, t._2)) else Nil) ++ (if (e2.isInstanceOf[IntConstant] || shortPrinter.stringOfExpr(e1) <= shortPrinter.stringOfExpr(e2)) List(Times(t._1, t._2)) else Nil) ++ (if (e1 != e2) List(Minus(t._1, t._2)) else Nil) ++ (if (e1 != e2 && evidence.forall{ case (_, memory) => defaultExecutor.evaluate(memory, Div(t._1, t._2)) != ErrorConstant }) List(Div(t._1, t._2)) else Nil)
-	case (e1, e2) if targetType == BooleanType && typer.typeOfExpr(e1, memory) == IntType && typer.typeOfExpr(e2, memory) == IntType && shortPrinter.stringOfExpr(e1) < shortPrinter.stringOfExpr(e2) => List(EQ(t._1, t._2), NE(t._1, t._2), LT(t._1, t._2), LE(t._1, t._2), GT(t._1, t._2), GE(t._1, t._2))
-	case (e1, e2) if targetType == BooleanType && typer.typeOfExpr(e1, memory) == BooleanType && typer.typeOfExpr(e2, memory) == BooleanType && !e1.isInstanceOf[BooleanConstant] && !e2.isInstanceOf[BooleanConstant] && shortPrinter.stringOfExpr(e1) < shortPrinter.stringOfExpr(e2) => List(And(t._1, t._2), Or(t._1, t._2))
-	case (e1, e2) if (targetType == IntType || depth > 0) && typer.typeOfExpr(e1, memory).isInstanceOf[ArrayType] && typer.typeOfExpr(e2, memory) == IntType => if (evidence forall { case (_, memory) => val r = defaultExecutor.evaluateInt(memory, e2); r >= 0 && r < defaultExecutor.evaluate(memory, e1).asInstanceOf[IntArray].array.length }) List(IntArrayAccess(e1, e2)) else Nil
-	case (e1, e2) if targetType == BooleanType && typer.typeOfExpr(e1, memory).isInstanceOf[ObjectType] && typer.typeOfExpr(e2, memory).isInstanceOf[ObjectType] && canBeSameType(typer.typeOfExpr(e1, memory), typer.typeOfExpr(e2, memory)) && shortPrinter.stringOfExpr(e1) < shortPrinter.stringOfExpr(e2) => List(EQ(e1, e2), NE(e1, e2))
-	case (e1, e2) if targetType == BooleanType && typer.typeOfExpr(e1, memory) == StringType && typer.typeOfExpr(e2, memory) == StringType && shortPrinter.stringOfExpr(e1) <= shortPrinter.stringOfExpr(e2) => List(EQ(e1, e2), NE(e1, e2))
-	case _ => Nil
-      }}
-      val curParts = if (depth == maxDepth) vars else nextLevel
-      val calls = functions.values filter { x => depth > 0 || canBeSameType(x.typ, targetType) } flatMap { p => {
-	val actualsPossibilities = p.inputs map { t => curParts filter { e => exprHasType(e, t._2) } }
-	val allArgs = actualsPossibilities.foldLeft(List[List[Expr]](Nil)){ (acc, cur) => for (a <- acc; c <- cur) yield a :+ c }
-	allArgs map { Call(p.name, _) }
-      }}
-      val extras = (curParts flatMap { e => defaultExecutor.evaluate(memory, e) match {
-	case IntArray(_, a) if (depth > 0 || targetType == IntType) && !e.isInstanceOf[Range] => List(ArrayLength(e)) ++ (if (depth < maxDepth) List(IntArrayAccess(e, IntConstant(0))) else Nil)
-	case Object(_, _, f) => f filter { f => depth > 0 || canBeSameType(typer.typeOfValue(f._2), targetType) } map { s => FieldAccess(e, s._1) }
-	case BooleanConstant(b) if targetType == BooleanType && depth < maxDepth && !e.isInstanceOf[BooleanConstant] => List(Not(e))  // Ensure that negating uses a depth.
-	case _ => Nil
-      }})
-      val possibilities = (constants ++ curVariables ++ binaryOps ++ calls ++ extras) filter { e => evidence forall { case (_, memory) => val v = defaultExecutor.evaluate(memory, e); !isErrorOrFailure(v) } }
-      if (depth == 0) possibilities filter hasCorrectForm(evidence.map{ _._1 }) else possibilities
+	def canBeSameType(t1: Type, t2: Type): Boolean = (t1, t2) match {
+	  case (ObjectType(n1), ObjectType(n2)) => n1 == n2 || n1 == "null" || n2 == "null"  // I somtimes call this with t2 == targetType, which would be null when I want something non-null, so if either is null, accept it
+	  case (_, _) => t1 == t2
+	}
+      def exprHasType(e: Expr, t: Type, memory: Memory): Boolean = canBeSameType(typer.typeOfExpr(e, memory), t)
+      val memory = evidence.head._2
+      //evidence.groupBy{ _._2 }.foreach{ case (memory, evidence) => {
+	val targetType = typer.typeOfAction(evidence.head._1, evidence.head._2)
+	val vars = memory.keys map { s => Var(s) }
+	if (depth > maxDepth)
+	  return Nil
+	val constants = (targetType, depth) match {
+	  case (BooleanType, 0) => List(BooleanConstant(true), BooleanConstant(false))
+	  case (IntType, 0) => List(IntConstant(0), IntConstant(1), IntConstant(2))
+	  case (_: ObjectType, 0) => List(Null)
+	  case (_, _) => List(IntConstant(1), IntConstant(2), BooleanConstant(true), BooleanConstant(false), Null)
+	}
+	val curVariables = if (depth == 0) vars filter { v => exprHasType(v, targetType, memory) } else vars
+	val nextLevel = genAllExprsRec(depth + 1)
+	val binaryOps = pairs(nextLevel, nextLevel) flatMap { t => t match {
+	  // Reduce the number of possibilities by ignoring duplicates, unnecessary ops, etc.
+	  case (e, IntConstant(1)) if !e.isInstanceOf[IntConstant] && typer.typeOfExpr(e, memory) == IntType && (targetType == IntType || depth > 0) => List(Plus(e, IntConstant(1)), Minus(e, IntConstant(1)))
+	  case (IntConstant(n1), IntConstant(n2)) if n1 == n2 => Nil
+	  case (Var(n1), Var(n2)) if n1 == n2 && typer.typeOfValue(memory(n1)) == IntType && typer.typeOfValue(memory(n2)) == IntType && (targetType == IntType || depth > 0) => List(Times(t._1, t._2))
+	  case (IntConstant(_), _) => Nil  // Prefer the other direction
+	  case (e1, e2) if  (targetType == IntType || depth > 0) && typer.typeOfExpr(e1, memory) == IntType && typer.typeOfExpr(e2, memory) == IntType => (if (e2.isInstanceOf[IntConstant] || shortPrinter.stringOfExpr(e1) < shortPrinter.stringOfExpr(e2)) List(Plus(t._1, t._2)) else Nil) ++ (if (e2.isInstanceOf[IntConstant] || shortPrinter.stringOfExpr(e1) <= shortPrinter.stringOfExpr(e2)) List(Times(t._1, t._2)) else Nil) ++ (if (e1 != e2) List(Minus(t._1, t._2)) else Nil) ++ (if (e1 != e2 && evidence.forall{ case (_, memory) => defaultExecutor.evaluate(memory, Div(t._1, t._2)) != ErrorConstant }) List(Div(t._1, t._2)) else Nil)
+	  case (e1, e2) if targetType == BooleanType && typer.typeOfExpr(e1, memory) == IntType && typer.typeOfExpr(e2, memory) == IntType && shortPrinter.stringOfExpr(e1) < shortPrinter.stringOfExpr(e2) => List(EQ(t._1, t._2), NE(t._1, t._2), LT(t._1, t._2), LE(t._1, t._2), GT(t._1, t._2), GE(t._1, t._2))
+	  case (e1, e2) if targetType == BooleanType && typer.typeOfExpr(e1, memory) == BooleanType && typer.typeOfExpr(e2, memory) == BooleanType && !e1.isInstanceOf[BooleanConstant] && !e2.isInstanceOf[BooleanConstant] && shortPrinter.stringOfExpr(e1) < shortPrinter.stringOfExpr(e2) => List(And(t._1, t._2), Or(t._1, t._2))
+	  case (e1, e2) if (targetType == IntType || depth > 0) && typer.typeOfExpr(e1, memory).isInstanceOf[ArrayType] && typer.typeOfExpr(e2, memory) == IntType => if (evidence forall { case (_, memory) => val r = defaultExecutor.evaluateInt(memory, e2); r >= 0 && r < defaultExecutor.evaluate(memory, e1).asInstanceOf[IntArray].array.length }) List(IntArrayAccess(e1, e2)) else Nil
+	  case (e1, e2) if targetType == BooleanType && typer.typeOfExpr(e1, memory).isInstanceOf[ObjectType] && typer.typeOfExpr(e2, memory).isInstanceOf[ObjectType] && canBeSameType(typer.typeOfExpr(e1, memory), typer.typeOfExpr(e2, memory)) && shortPrinter.stringOfExpr(e1) < shortPrinter.stringOfExpr(e2) => List(EQ(e1, e2), NE(e1, e2))
+	  case (e1, e2) if targetType == BooleanType && typer.typeOfExpr(e1, memory) == StringType && typer.typeOfExpr(e2, memory) == StringType && shortPrinter.stringOfExpr(e1) <= shortPrinter.stringOfExpr(e2) => List(EQ(e1, e2), NE(e1, e2))
+	  case _ => Nil
+	}}
+	val curParts = if (depth == maxDepth) vars else nextLevel
+	val calls = functions.values filter { x => depth > 0 || canBeSameType(x.typ, targetType) } flatMap { p => {
+	  val actualsPossibilities = p.inputs map { t => curParts filter { e => exprHasType(e, t._2, memory) } }
+	  val allArgs = actualsPossibilities.foldLeft(List[List[Expr]](Nil)){ (acc, cur) => for (a <- acc; c <- cur) yield a :+ c }
+	  allArgs map { Call(p.name, _) }
+	}}
+	val extras = (curParts flatMap { e => defaultExecutor.evaluate(memory, e) match {
+	  case IntArray(_, a) if (depth > 0 || targetType == IntType) && !e.isInstanceOf[Range] => List(ArrayLength(e)) ++ (if (depth < maxDepth) List(IntArrayAccess(e, IntConstant(0))) else Nil)
+	  case Object(_, _, f) => f filter { f => depth > 0 || canBeSameType(typer.typeOfValue(f._2), targetType) } map { s => FieldAccess(e, s._1) }
+	  case BooleanConstant(b) if targetType == BooleanType && depth < maxDepth && !e.isInstanceOf[BooleanConstant] => List(Not(e))  // Ensure that negating uses a depth.
+	  case _ => Nil
+	}})
+	  val possibilities = (constants ++ curVariables ++ binaryOps ++ calls ++ extras) filter { e => evidence forall { case (_, memory) => val v = defaultExecutor.evaluate(memory, e); !isErrorOrFailure(v) } }
+	if (depth == 0) possibilities filter hasCorrectForm(evidence.map{ _._1 }) else possibilities
+      //} }
     }
     // TODO/FIXME: Improve this.  Also, I could do this check before generating the possibilities and use it to guide them (e.g. I don't need a search if they give me osmething unambiguous like a[i] < x+y, and if they give me a[5] I only need to fill the 5 hole, not the a[] part).
     def hasCorrectForm(evidence: Iterable[Action])(e: Expr): Boolean = {

@@ -1,17 +1,16 @@
 package graphprog.gui
 
 import java.awt.Color
-import javax.swing.{ JList, DefaultListModel, DefaultListCellRenderer }
+import javax.swing.{ JList, DefaultListModel, DefaultListCellRenderer, ListCellRenderer }
+import Code._
 
-protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, private val model: DefaultListModel) extends JList(model) {
+protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, private val model: DefaultListModel[ListData]) extends JList[ListData](model) {
 
   import graphprog.lang.AST.{ Stmt, Value, If }
   import graphprog.lang.Printer
   import graphprog.Utils._
   import graphprog.Controller.{ Breakpoint, NormalBreakpoint, ConditionalBreakpoint }
-  import Code._
 
-  private case class ListData(stmt: Stmt, parent: Option[Stmt], displayStr: String, tooltipStr: Option[String], isExecutable: Boolean)
   private var elems: List[ListData] = Nil
 
   private var stmts: List[Stmt] = Nil
@@ -25,16 +24,14 @@ protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, priva
   def this(synthesisGUI: SynthesisGUI) = this(synthesisGUI, new DefaultListModel)
 
   private def init() {
-    setCellRenderer(new DefaultListCellRenderer {
+    setCellRenderer(new ListCellRenderer[ListData] {
       import java.awt.Component
       import javax.swing._
-      override def getListCellRendererComponent(list: JList, value: Object, index: Int, isSelected: Boolean, cellHasFocus: Boolean): Component = {
-	super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus)
-	val str = value match {
-	  case d: ListData => d.displayStr
-	}
-	setText("<html>" + str + "</html>")
-	return this
+      val realRenderer = new DefaultListCellRenderer()
+      def getListCellRendererComponent(list: JList[_ <: ListData], value: ListData, index: Int, isSelected: Boolean, cellHasFocus: Boolean): Component = {
+	val comp = realRenderer.asInstanceOf[ListCellRenderer[ListData]].getListCellRendererComponent(list, value, index, isSelected, cellHasFocus)
+	realRenderer.setText("<html>" + value.displayStr + "</html>")
+	return comp
       }
     })
 
@@ -216,5 +213,9 @@ private object Code {
 
   val CUR_COLOR = "blue"
   val FAILING_COLOR = "red"
+
+  import graphprog.lang.AST.Stmt
+
+  case class ListData(stmt: Stmt, parent: Option[Stmt], displayStr: String, tooltipStr: Option[String], isExecutable: Boolean)
 
 }
