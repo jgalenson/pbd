@@ -627,6 +627,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 		val (actions, curResult, newMemory) = getActionGUI()
 		// Filter out possibilities ruled illegal by this new action (which will reduce the possibilities in the next iteration).
 		val newStmt = possibilitiesToStmt(curHole, newPossibilities filter { p => yieldEquivalentResults(memory, p, curResult, newMemory, defaultExecutor) })
+		//println("Changed " + shortPrinter.stringOfStmt(curStmt) + " to " + shortPrinter.stringOfStmt(newStmt))
 		numDisambiguations += 1
 		updateHoleMaps(newStmt, actions, true)
 		//continue = false  // TODO: Should we continue in this case or not?
@@ -1072,6 +1073,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     private def prune(code: List[Stmt], progress: Double, inputOpt: Option[List[(String, Value)]]): Option[List[Stmt]] = {
       import scala.collection.mutable.HashSet
       case object AbortOnUnknown extends Value with IsErrorOrFailure
+      case object TimeoutValue extends Value with IsErrorOrFailure
       // Get an input that (a) does not fail the precondition and (b) differentiates between at least one possibility.
       val input = inputOpt.getOrElse{ findFirstNewRandomInput(code, progress).getOrElse{ return None } }
       // Do some (fast) simple input pruning, which if it works can greatly reduce the search space.
@@ -1130,7 +1132,16 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	    case _: Unseen => AbortOnUnknown  // Stop searching when we hit an unseen statement.
 	  }
 	}
-	val executor = new Executor(functions, longPrinter, holeHandler)
+	val executor = new Executor(functions, longPrinter, holeHandler) {
+	  override def doLoopBody(memory: Memory, l: Loop): Value = {  // Do a simple check for a loop with no chanegs to memory and do a fast timeout if we're in one.
+	    val initMem = memory.clone
+	    val v = super.doLoopBody(memory, l)
+	    if (memoriesAreEqual(memory, initMem))
+	      TimeoutValue
+	    else
+	      v
+	  }
+	}
 	def programSucceeded(result: Value, resMap: IMap[String, Value]): Boolean = !isErrorOrFailure(result) && (postcondition match { case Some(p) => p(input.toMap, resMap, result) case _ => true })
 	//val startTime = System.currentTimeMillis()
 	// Returns (has at least one path that was successful or hit an unseen stmt, can prune)

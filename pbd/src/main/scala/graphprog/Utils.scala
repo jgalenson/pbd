@@ -19,7 +19,7 @@ object Utils {
 
   def pluralize(singular: String, plural: String, count: Int): String = if (count == 1) singular else plural
 
-  abstract class ExecutionResult[+T]
+  trait ExecutionResult[+T]
   case class NormalResult[T](val result: T) extends ExecutionResult[T]
   case class ExceptionThrown(val e: Throwable) extends ExecutionResult[Nothing]
   case object Timeout extends ExecutionResult[Nothing]
@@ -30,7 +30,7 @@ object Utils {
     try {
       NormalResult(task.get(timeout, TimeUnit.MILLISECONDS))
     } catch {
-      case _: TimeoutException => Timeout
+      case _: TimeoutException | _: graphprog.lang.Executor.InterruptedException => Timeout
       case e: ExecutionException => ExceptionThrown(e.getCause)
     } finally {
       task.cancel(true)

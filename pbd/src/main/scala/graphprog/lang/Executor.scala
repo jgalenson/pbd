@@ -153,7 +153,7 @@ class Executor(private val functions: Map[String, Program], private val printer:
       if (isErrorOrFailure(result))
 	result
       else if (result.isInstanceOf[IntConstant] || result.asInstanceOf[BooleanConstant].b) {
-	val v = execStmts(memory, l.body)
+	val v = doLoopBody(memory, l)
 	if (isErrorOrFailure(v))
 	  v
 	else if (v == BreakHit)
@@ -165,6 +165,7 @@ class Executor(private val functions: Map[String, Program], private val printer:
     }
     runLoop()
   }
+  protected def doLoopBody(memory: Memory, l: Loop): Value = execStmts(memory, l.body)
   protected def eval(memory: Memory, e: Expr): Value = {
     //println("Evaluating " + printer.stringOfExpr(e) + " with memory " + printer.stringOfMemory(memory))
     def handleIntComparison(l: Expr, r: Expr, op: (Int, Int) => Boolean): Value = {
@@ -286,7 +287,11 @@ class Executor(private val functions: Map[String, Program], private val printer:
   protected[graphprog] def evaluateInt(memory: Memory, e: Expr): Int = evaluate(memory, e).asInstanceOf[IntConstant].n
 
   /* Execute a list of statements and return the result and final memory. */
-  protected def execStmts(memory: Memory, stmts: List[Stmt]): Value = stmts.foldLeft(UnitConstant: Value) { (prev, s) => if (isErrorOrFailure(prev) || prev == BreakHit) prev else exec(memory, s) }
+  protected def execStmts(memory: Memory, stmts: List[Stmt]): Value = {
+    if (java.lang.Thread.interrupted())
+      throw new InterruptedException
+    stmts.foldLeft(UnitConstant: Value) { (prev, s) => if (isErrorOrFailure(prev) || prev == BreakHit) prev else exec(memory, s) }
+  }
   protected[graphprog] def executeStmts(memory: Memory, stmts: List[Stmt]): (Value, Memory) = {
     val clonedMemory = memory.clone
     (execStmts(clonedMemory, stmts), clonedMemory)
@@ -366,5 +371,7 @@ object Executor {
 	ErrorConstant
     case _: Unseen => ErrorConstant
   }
+
+  protected[graphprog] class InterruptedException extends FastException
 
 }
