@@ -252,7 +252,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	if (allArrows.size > 1) {
 	  val notches = e.getWheelRotation()
 	  val oldArrow = held.asInstanceOf[FlyingArrow].arrow
-	  val newArrow = allArrows((allArrows.indexOf(oldArrow) + notches) % allArrows.size)
+	  val newArrow = allArrows((allArrows.indexOf(oldArrow) + notches + allArrows.size) % allArrows.size)  // Add allArrows.size to avoid crashing when you keep scrolling up (and get to 0 - 1 % n).
 	  assert(newArrow != oldArrow)
 	  val (x, y) = (e.getX(), e.getY())
 	  oldArrow.isFlying = false
