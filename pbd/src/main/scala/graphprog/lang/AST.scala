@@ -18,7 +18,8 @@ object AST {
   case class ObjectType(name: String) extends HeapType
   case object GenericType extends Type
 
-  trait Value extends Expr
+  trait Result
+  trait Value extends Expr with Result
   trait IsErrorOrFailure
   case object ErrorConstant extends Value with IsErrorOrFailure
   case object AssumeFailed extends Value with IsErrorOrFailure
@@ -165,6 +166,13 @@ object AST {
     def toIterator: Iterator[(String, Value)] = mem.foldLeft(Iterator.apply[(String, Value)]()){ (acc, cur) => acc ++ cur.toIterator }
     def toMap: Map[String, Value] = toIterator.toMap
 
+    override def equals(o: Any) = o match { case o: Memory => ASTUtils.memoriesAreEqual(this, o) case _ => false }
+    override def hashCode: Int = mem.hashCode
+
+    override def toString: String = (new Printer(Map.empty, true)).stringOfMemory(this)
+
   }
+
+  case class SideEffect(effect: (Memory, Memory), value: Value) extends Result
 
 }
