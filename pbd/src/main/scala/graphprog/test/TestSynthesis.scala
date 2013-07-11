@@ -12,8 +12,9 @@ object TestSynthesis {
 
   def main(args: Array[String]) {
     val options = parseCommandLine(args)
-    testOrdering(options)
-    testMultipleMemories(options)
+    //testOrdering(options)
+    //testMultipleMemories(options)
+    testTiming(options)
   }
 
   private val printer = new Printer(Map.empty, true)
@@ -32,6 +33,10 @@ object TestSynthesis {
 
   def testMultipleMemories(options: Options) {
     println(stringOfStmts(codeGenerator.genAllExprs(List((1, new Memory(List(("x" -> IntConstant(1)), ("y" -> IntConstant(1))))), (42, new Memory(List(("x" -> IntConstant(42)), ("y" -> IntConstant(137)))))), 1)))
+  }
+
+  def testTiming(options: Options) {
+    println(stringOfStmts(time(codeGenerator.genAllExprs(List((1, new Memory(List(("a" -> IntConstant(11)), ("b" -> IntConstant(42)), ("c" -> IntConstant(137)), ("d" -> IntConstant(4242)))))), 3))))
   }
   
 }

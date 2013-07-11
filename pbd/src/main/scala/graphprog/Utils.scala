@@ -84,4 +84,11 @@ object Utils {
   class NotImplementedError extends Error
   def TODO: Nothing = throw new NotImplementedError
 
+  def time[T](f: => T): T = {
+    val startTime = System.currentTimeMillis()
+    val result = f
+    println((System.currentTimeMillis - startTime))
+    result
+  }
+
 }

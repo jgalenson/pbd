@@ -1,7 +1,7 @@
 package graphprog.synthesis
 
 import graphprog.lang.AST._
-import graphprog.lang.{ Executor, Printer, Typer }
+import graphprog.lang.{ Executor, Printer, Typer, CachingExecutor }
 import scala.collection.immutable.{ Map => IMap }
 
 protected[synthesis] class CodeGenerator(private val functions: IMap[String, Program], private val shortPrinter: Printer, private val defaultExecutor: Executor, private val typer: Typer) {
@@ -19,6 +19,7 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
       assert(holdsOverIterable(evidence, (x: (Action, Memory), y: (Action, Memory)) => x._1 == y._1))
       return List(evidence.head._1.asInstanceOf[LiteralExpr].e)
     }
+    val cachingExecutor = new CachingExecutor(functions, shortPrinter)
     def makeCalls(name: String, actualsPossibilities: Iterable[Iterable[Expr]]): Iterable[Call] = {
       val allArgs = actualsPossibilities.foldLeft(List[List[Expr]](Nil)){ (acc, cur) => for (a <- acc; c <- cur) yield a :+ c }
       allArgs map { Call(name, _) }
@@ -31,7 +32,7 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
       def exprHasType(e: Expr, t: Type, memory: Memory): Boolean = canBeSameType(typer.typeOfExpr(e, memory), t)
       val equivalences = MHashMap.empty[Memory, MHashMap[Result, ListBuffer[Expr]]]
       def getResult(e: Expr, memory: Memory, result: (Value, Memory)): Result = if (e.isInstanceOf[Call] && result._2 != memory) SideEffect((memory, result._2), result._1) else result._1
-      def pairs(l1: Iterable[Expr], l2: Iterable[Expr], memory: Memory): Iterable[(Expr, Expr)] = for (e1 <- l1; e2 <- l2; e2b = if (e1 != e2) e2 else equivalences(memory)(getResult(e2, memory, defaultExecutor.execute(memory, e2))).find{ _ != e1 }.getOrElse{ e2 }; reorder = e1 == e2 && shortPrinter.stringOfExpr(e1) > shortPrinter.stringOfExpr(e2b)) yield if (!reorder) (e1, e2b) else (e2b, e1)
+      def pairs(l1: Iterable[Expr], l2: Iterable[Expr], memory: Memory): Iterable[(Expr, Expr)] = for (e1 <- l1; e2 <- l2; e2b = if (e1 != e2) e2 else equivalences(memory)(getResult(e2, memory, cachingExecutor.execute(memory, e2))).find{ _ != e1 }.getOrElse{ e2 }; reorder = e1 == e2 && shortPrinter.stringOfExpr(e1) > shortPrinter.stringOfExpr(e2b)) yield if (!reorder) (e1, e2b) else (e2b, e1)
       def getRepresentatives(memory: Memory): Iterable[Expr] = equivalences.getOrElse(memory, MMap.empty).values.map{ _.head }
       def addExpr(memory: Memory, expr: Expr, result: Result) = equivalences.getOrElseUpdate(memory, MHashMap.empty).getOrElseUpdate(result, ListBuffer.empty) += expr
       def genExprsRec(depth: Int) {
@@ -45,32 +46,32 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
 	  val nextLevel = getRepresentatives(memory)
 	  //println("Memory: " + memory)
 	  //println("Depth " + depth + "/" + maxDepth + " next level: " + iterableToString(nextLevel, ", ", (e: Expr) => shortPrinter.stringOfExpr(e)))
-	  val binaryOps = pairs(nextLevel, nextLevel, memory) flatMap { t => t match {
+	  val binaryOps = pairs(nextLevel, nextLevel, memory).flatMap{ t => t match {
 	    // Reduce the number of possibilities by ignoring duplicates, unnecessary ops, etc.
 	    case (Var(n1), Var(n2)) if n1 == n2 && typer.typeOfValue(memory(n1)) == IntType && typer.typeOfValue(memory(n2)) == IntType && (targetType == IntType || depth < maxDepth) => List(Times(t._1, t._2))
-	    case (e1, e2) if  (targetType == IntType || depth < maxDepth) && typer.typeOfExpr(e1, memory) == IntType && typer.typeOfExpr(e2, memory) == IntType => (if (shortPrinter.stringOfExpr(e1) < shortPrinter.stringOfExpr(e2)) List(Plus(t._1, t._2)) else Nil) ++ (if (shortPrinter.stringOfExpr(e1) <= shortPrinter.stringOfExpr(e2)) List(Times(t._1, t._2)) else Nil) ++ (if (e1 != e2) List(Minus(t._1, t._2)) else Nil) ++ (if (e1 != e2 && evidence.forall{ case (_, memory) => defaultExecutor.evaluate(memory, Div(t._1, t._2)) != ErrorConstant }) List(Div(t._1, t._2)) else Nil)
+	    case (e1, e2) if  (targetType == IntType || depth < maxDepth) && typer.typeOfExpr(e1, memory) == IntType && typer.typeOfExpr(e2, memory) == IntType => (if (shortPrinter.stringOfExpr(e1) < shortPrinter.stringOfExpr(e2)) List(Plus(t._1, t._2)) else Nil) ++ (if (shortPrinter.stringOfExpr(e1) <= shortPrinter.stringOfExpr(e2)) List(Times(t._1, t._2)) else Nil) ++ (if (e1 != e2) List(Minus(t._1, t._2)) else Nil) ++ (if (e1 != e2 && evidence.forall{ case (_, memory) => cachingExecutor.evaluate(memory, Div(t._1, t._2)) != ErrorConstant }) List(Div(t._1, t._2)) else Nil)
 	    case (e1, e2) if targetType == BooleanType && typer.typeOfExpr(e1, memory) == IntType && typer.typeOfExpr(e2, memory) == IntType && shortPrinter.stringOfExpr(e1) < shortPrinter.stringOfExpr(e2) => List(EQ(t._1, t._2), NE(t._1, t._2), LT(t._1, t._2), LE(t._1, t._2), GT(t._1, t._2), GE(t._1, t._2))
 	    case (e1, e2) if targetType == BooleanType && typer.typeOfExpr(e1, memory) == BooleanType && typer.typeOfExpr(e2, memory) == BooleanType && shortPrinter.stringOfExpr(e1) < shortPrinter.stringOfExpr(e2) => List(And(t._1, t._2), Or(t._1, t._2))
-	    case (e1, e2) if (targetType == IntType || depth < maxDepth) && typer.typeOfExpr(e1, memory).isInstanceOf[ArrayType] && typer.typeOfExpr(e2, memory) == IntType => if (evidence forall { case (_, memory) => val r = defaultExecutor.evaluateInt(memory, e2); r >= 0 && r < defaultExecutor.evaluate(memory, e1).asInstanceOf[IntArray].array.length }) List(IntArrayAccess(e1, e2)) else Nil
+	    case (e1, e2) if (targetType == IntType || depth < maxDepth) && typer.typeOfExpr(e1, memory).isInstanceOf[ArrayType] && typer.typeOfExpr(e2, memory) == IntType => if (evidence forall { case (_, memory) => val r = cachingExecutor.evaluateInt(memory, e2); r >= 0 && r < cachingExecutor.evaluate(memory, e1).asInstanceOf[IntArray].array.length }) List(IntArrayAccess(e1, e2)) else Nil
 	    case (e1, e2) if targetType == BooleanType && typer.typeOfExpr(e1, memory).isInstanceOf[ObjectType] && typer.typeOfExpr(e2, memory).isInstanceOf[ObjectType] && canBeSameType(typer.typeOfExpr(e1, memory), typer.typeOfExpr(e2, memory)) && shortPrinter.stringOfExpr(e1) < shortPrinter.stringOfExpr(e2) => List(EQ(e1, e2), NE(e1, e2))
 	    case (e1, e2) if targetType == BooleanType && typer.typeOfExpr(e1, memory) == StringType && typer.typeOfExpr(e2, memory) == StringType && shortPrinter.stringOfExpr(e1) <= shortPrinter.stringOfExpr(e2) => List(EQ(e1, e2), NE(e1, e2))
 	    case _ => Nil
 	  }}
-	  val calls = functions.values filter { x => depth < maxDepth || canBeSameType(x.typ, targetType) } flatMap { p => {
+	  val calls = functions.values.filter{ x => depth < maxDepth || canBeSameType(x.typ, targetType) }.flatMap{ p => {
 	    val actualsPossibilities = p.inputs map { t => nextLevel filter { e => exprHasType(e, t._2, memory) } }
 	    makeCalls(p.name, actualsPossibilities)
 	  }}
-	  val extras = (nextLevel flatMap { e => defaultExecutor.evaluate(memory, e) match {
+	  val extras = nextLevel.flatMap{ e => cachingExecutor.evaluate(memory, e) match {
 	    case IntConstant(n) if targetType == IntType || depth < maxDepth => List(Plus(e, IntConstant(1)), Minus(e, IntConstant(1)), Times(e, IntConstant(2)), Div(e, IntConstant(2)))
 	    case IntConstant(n) if targetType == BooleanType || depth < maxDepth => List(LT(e, IntConstant(0)), GT(e, IntConstant(0)))
 	    case IntArray(_, a) if (depth < maxDepth || targetType == IntType) && !e.isInstanceOf[Range] => List(ArrayLength(e)) ++ (if (depth > 0) List(IntArrayAccess(e, IntConstant(0))) else Nil)
 	    case Object(_, _, f) => f filter { f => depth < maxDepth || canBeSameType(typer.typeOfValue(f._2), targetType) } map { s => FieldAccess(e, s._1) }
 	    case BooleanConstant(b) if targetType == BooleanType && depth > 0 && !e.isInstanceOf[BooleanConstant] => List(Not(e))  // Ensure that negating uses a depth.
 	    case _ => Nil
-	  }})
+	  }}
 	  val possibilities = constants ++ curVariables ++ binaryOps ++ calls ++ extras
 	  //println("Depth " + depth + "/" + maxDepth + " poss: " + iterableToString(possibilities, ", ", (e: Expr) => shortPrinter.stringOfExpr(e)))
-	  possibilities.filter{ e => getDepth(e) == depth }.foreach{ e => defaultExecutor.execute(memory, e) match {
+	  possibilities.filter{ e => getDepth(e) == depth }.foreach{ e => cachingExecutor.execute(memory, e) match {
 	    case result @ (value, newMem) if !isErrorOrFailure(value) => addExpr(memory, e, getResult(e, memory, result))
 	    case _ => 
 	  } }
@@ -78,19 +79,19 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
 	} }
 	genExprsRec(depth + 1)
       }
-      genExprsRec(0)
+      genExprsRec(0)  // TODO: This is a bit slow and could be optimized.
       //def soe(e: Expr): String = shortPrinter.stringOfExpr(e)
       val finalEquivMap = {
 	val combinedEquivs = MHashMap.empty[Expr, MSet[Expr]]
 	val allClasses = MHashSet.empty[MSet[Expr]] ++ equivalences.values.flatMap{ _.values.map{ MHashSet.empty[Expr] ++ _ } }
 	//println("All classes: " + iterableToString(allClasses, ", ", (cls: MSet[Expr]) => "{" + iterableToString(cls, ", ", (e: Expr) => soe(e)) + "}"))
-	allClasses.foreach{ curClass => curClass.foreach{ expr => combinedEquivs += (expr -> combinedEquivs.getOrElse(expr, curClass).intersect(curClass)) } }
+	allClasses.foreach{ curClass => curClass.foreach{ expr => combinedEquivs += (expr -> combinedEquivs.getOrElse(expr, curClass).intersect(curClass)) } }  // TODO: This is a bit slow and could be optimized.
 	combinedEquivs
       }
       //println("Pre equivalences: " + iterableToString(equivalences, ", ", (me: (Memory, MHashMap[Result, ListBuffer[Expr]])) => me._1 + " -> " + iterableToString(me._2, ", ", (kv: (Result, ListBuffer[Expr])) => { kv._1 match { case v: Value => soe(v) case SideEffect(ms, v) => kv._1.toString } } + " -> {" + iterableToString(kv._2, ", ", (e: Expr) => soe(e)) + "}")))
       //println("Post equivalences: " + iterableToString(finalEquivMap, ", ", (kv: (Expr, MSet[Expr])) => soe(kv._1) + " -> {" + iterableToString(kv._2, ", ", (e: Expr) => soe(e)) + "}"))
       val demonstrations = evidence.collect{ case (v: Value, _) => v }.toSet
-      val candidates = demonstrations ++ finalEquivMap.values.toSet[MSet[Expr]].map{ _.head }
+      val candidates = demonstrations ++ finalEquivMap.values.toSet.map{ (cls: MSet[Expr]) => cls.head }  // TODO: This is a bit slow and could be optimized.
       (candidates, finalEquivMap)
     }
     def expandEquivalences(validExprs: Iterable[Expr], equivalences: MMap[Expr, MSet[Expr]]): Iterable[Expr] = {
@@ -206,7 +207,7 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
     //println("Equivalences: " + iterableToString(equivalences, ", ", (kv: (Expr, MSet[Expr])) => soe(kv._1) + " -> {" + iterableToString(kv._2, ", ", (e: Expr) => soe(e)) + "}"))
     val validExprs = 
       if (checker.isEmpty)
-	getValidChoices(exprs, evidence)
+	getValidChoices(exprs, evidence, cachingExecutor)
       else
 	exprs filter { e => evidence forall { case (a, m) => checker.get(e, a, m) } }
     //println("Valid exprs: {" + iterableToString(validExprs, ", ", (e: Expr) => soe(e)) + "}")
@@ -219,9 +220,9 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
    * Caches the executed results of the evidence to avoid recomputing it.
    * TODO-optimization: store evidence result and memory in the EvidenceHole itself.
    */ 
-  private def getValidChoices(exprs: Iterable[Expr], evidence: Iterable[(Action, Memory)]): Iterable[Expr] = {
-    val fullEvidence = evidence map { case (action, memory) => val (result, memAfter) = defaultExecutor.execute(memory, action); (memory, result, memAfter) }
-    val goodExprs = exprs filter { e => fullEvidence forall { case (memBefore, result, memAfter) => try { yieldEquivalentResults(memBefore, e, result, memAfter, defaultExecutor) } catch { case _ => false } }}
+  private def getValidChoices(exprs: Iterable[Expr], evidence: Iterable[(Action, Memory)], executor: Executor = defaultExecutor): Iterable[Expr] = {
+    val fullEvidence = evidence map { case (action, memory) => val (result, memAfter) = executor.execute(memory, action); (memory, result, memAfter) }
+    val goodExprs = exprs filter { e => fullEvidence forall { case (memBefore, result, memAfter) => try { yieldEquivalentResults(memBefore, e, result, memAfter, executor) } catch { case _ => false } }}
     if (evidence.size > 0 && evidence.forall{ _._1.isInstanceOf[Call] } && holdsOverIterable(evidence, (x: (Action, Memory), y: (Action, Memory)) => (x._1, y._1) match { case (Call(n1, _), Call(n2, _)) => n1 == n2 case _ => throw new RuntimeException })) {  // TODO: This shouldn't be needed once I add expression holes.
       val functionName = evidence.head._1.asInstanceOf[Call].name
       goodExprs filter { _ match { case Call(n1, _) => n1 == functionName case _ => false }}
