@@ -1,7 +1,8 @@
 package graphprog
 
 import synthesis.Synthesis
-import lang.AST.{ Action, Memory, Program, Trace, Value, Stmt, Type, Object, Iterate, Loop, Expr, Primitive }
+import lang.AST.{ Action, Program, Trace, Value, Stmt, Type, Object, Iterate, Loop, Expr, Primitive }
+import lang.Memory
 import gui.SynthesisGUI._
 import scala.concurrent.SyncVar
 import java.util.concurrent.Semaphore

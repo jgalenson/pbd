@@ -5,6 +5,7 @@ object GuiTest {
   import graphprog.Controller
   import graphprog.Controller._
   import graphprog.lang.AST._
+  import graphprog.lang.Memory
   import graphprog.synthesis.Synthesis._
   import graphprog.Utils._
   import scala.collection.immutable.{ Map => IMap }

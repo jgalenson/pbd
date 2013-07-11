@@ -3,7 +3,7 @@ package graphprog.test
 object RBTree {
 
   import graphprog.lang.AST._
-  import graphprog.lang.{ Executor, Printer }
+  import graphprog.lang.{ Executor, Memory, Printer }
   import graphprog.Controller._
   import graphprog.Controller
   import graphprog.Utils._

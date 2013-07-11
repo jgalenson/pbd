@@ -14,7 +14,8 @@ import scala.collection.{ Map => TMap }
 class SynthesisGUI private (private val controller: Controller, private val helperFunctions: Map[String, Program], private val objectTypes: Map[String, List[(String, Type)]], private val objectComparators: Map[String, (Value, Value) => Int], private val fieldLayouts: Map[String, List[List[String]]], private val objectLayouts: Map[String, ObjectLayout]) extends JFrame(TITLE) {
 
   import graphprog.Utils._
-  import graphprog.lang.AST.{ Action, Memory, Value, Stmt, Iterate, Loop, If, UnseenStmt, Expr }
+  import graphprog.lang.AST.{ Action, Value, Stmt, Iterate, Loop, If, UnseenStmt, Expr }
+  import graphprog.lang.Memory
 
   private val canvas = new Canvas(this, helperFunctions, objectTypes, objectComparators, fieldLayouts, objectLayouts)
   private val controls = new graphprog.gui.controls.Controls(this, helperFunctions.values)

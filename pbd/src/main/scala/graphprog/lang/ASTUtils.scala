@@ -7,6 +7,7 @@ protected[graphprog] class Printer(helpers: PartialFunction[String, Value => Str
 
   import scala.collection.immutable.Map
   import scala.collection.immutable.Set
+  import graphprog.lang.Memory
 
   private def stringOfType(t: Type): String = t match {
     case ErrorType => "ERROR"

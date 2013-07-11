@@ -1,7 +1,7 @@
 package graphprog.synthesis
 
 import graphprog.lang.AST._
-import graphprog.lang.{ Executor, Printer, Typer, CachingExecutor }
+import graphprog.lang.{ Executor, Memory, Printer, Typer, CachingExecutor }
 import scala.collection.immutable.{ Map => IMap }
 
 protected[synthesis] class CodeGenerator(private val functions: IMap[String, Program], private val shortPrinter: Printer, private val defaultExecutor: Executor, private val typer: Typer) {

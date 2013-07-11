@@ -4,7 +4,7 @@ object TestSynthesis {
 
   import scala.collection.immutable.{ Map => IMap }
   import graphprog.lang.AST._
-  import graphprog.lang.{ Executor, Printer, Typer }
+  import graphprog.lang.{ Executor, Memory, Printer, Typer }
   import graphprog.synthesis.CodeGenerator
   import graphprog.test.TestCommon._
   import graphprog.Controller.Options

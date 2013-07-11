@@ -4,7 +4,7 @@ import graphprog.lang.AST._
 
 object SynthesisUtils {
 
-  import graphprog.lang.Executor
+  import graphprog.lang.{ Executor, Memory }
   import graphprog.lang.ASTUtils._
 
   protected[synthesis] def yieldEquivalentResults(memoryPre: Memory, cur: Stmt, targetOutput: Value, targetMemoryPost: Memory, executor: Executor): Boolean = {

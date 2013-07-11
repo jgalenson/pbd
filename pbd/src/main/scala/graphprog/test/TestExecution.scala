@@ -3,7 +3,7 @@ package graphprog.test
 object TestExecution {
 
   import graphprog.lang.AST._
-  import graphprog.lang.{ Executor, Printer, IteratorExecutor }
+  import graphprog.lang.{ Executor, Memory, Printer, IteratorExecutor }
   import graphprog.Controller._
   import graphprog.Utils._
   import graphprog.lang.Compiler._

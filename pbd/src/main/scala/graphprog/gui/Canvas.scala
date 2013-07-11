@@ -14,8 +14,8 @@ import scala.collection.{ Map => TMap }
 // TODO: Improve layout.  Maybe remove code from createShape and instead add a new function that movies things that have been created (and call it after creating all of them).
 protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFunctions: IMap[String, Program], private val objectTypes: IMap[String, List[(String, Type)]], private val objectComparators: IMap[String, (Value, Value) => Int], private val fieldLayouts: IMap[String, List[List[String]]], private val objectLayouts: IMap[String, ObjectLayout]) extends JPanel {
 
-  import graphprog.lang.AST.{ Action, IntArray, IntConstant, Memory, Null, Object, Primitive, Value, Assign, Var => ASTVar, Call, HeapValue, Expr, Stmt, Iterate, Loop, BooleanConstant }
-  import graphprog.lang.{ Printer, Executor, Typer }
+  import graphprog.lang.AST.{ Action, IntArray, IntConstant, Null, Object, Primitive, Value, Assign, Var => ASTVar, Call, HeapValue, Expr, Stmt, Iterate, Loop, BooleanConstant }
+  import graphprog.lang.{ Printer, Executor, Typer, Memory }
   import java.awt.event.{ MouseAdapter, MouseEvent, MouseMotionAdapter, MouseWheelListener, MouseWheelEvent }
   import scala.annotation.tailrec
 

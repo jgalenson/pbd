@@ -7,7 +7,7 @@ import scala.collection.immutable.{ Map => IMap }
 // The postcondition takes (initial arguments, memory at end of program, return value).  Comparing initial and final values may cause problems as they have the same ids.
 class Synthesis(private val controller: Controller, name: String, typ: Type, private val inputTypes: List[(String, Type)], private val functions: IMap[String, Program], private val objectTypes: IMap[String, List[(String, Type)]], private val printHelpers: PartialFunction[String, Value => String], private val generator: Option[Double => List[(String, Value)]], private val precondition: Option[IMap[String, Value] => Boolean], private val postcondition: Option[(IMap[String, Value], IMap[String, Value], Value) => Boolean], private val objectComparators: Map[String, (Value, Value) => Int]) extends Serializable {
 
-  import graphprog.lang.{ Executor, Printer, Typer, IteratorExecutor }
+  import graphprog.lang.{ Executor, Memory, Printer, Typer, IteratorExecutor }
   import graphprog.lang.ASTUtils._
   import graphprog.lang.Executor.simpleHoleHandler
   import graphprog.Controller._
