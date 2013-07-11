@@ -13,10 +13,10 @@ import Utils._
 protected[graphprog] class Controller(private val synthesisCreator: Controller => Synthesis, private val helperFunctions: Map[String, Program], private val objectTypes: Map[String, List[(String, Type)]], private val objectComparators: Map[String, (Value, Value) => Int], private val fieldLayouts: Map[String, List[List[String]]], private val objectLayouts: Map[String, ObjectLayout], @transient private var options: Options) extends Serializable {
 
   @transient private var lastState: Option[(Memory, List[Stmt], Option[Stmt])] = None
-  private val actionsVar = new SingleUseSyncVar[ActionsInfo]
-  private val stmtTraceVar = new SingleUseSyncVar[StmtTraceIntermediateInfo]
-  private val exprTraceVar = new SingleUseSyncVar[ExprTraceIntermediateInfo]
-  private val fixInfo = new SingleUseSyncVar[FixInfo]
+  private val actionsVar = new SyncVar[ActionsInfo]
+  private val stmtTraceVar = new SyncVar[StmtTraceIntermediateInfo]
+  private val exprTraceVar = new SyncVar[ExprTraceIntermediateInfo]
+  private val fixInfo = new SyncVar[FixInfo]
 
   private val synthesizer = synthesisCreator(this)
   @transient private var gui = makeGUI(this, helperFunctions, objectTypes, objectComparators, fieldLayouts, objectLayouts)  // We need to define this last since its creation triggers a paint, which calls getMemory, which needs memChan.
@@ -32,12 +32,12 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
 
   def getActions(possibilities: List[Action], amFixing: Boolean): ActionsInfo = {
     invokeAndWait{ gui.getActions(possibilities, amFixing) }
-    actionsVar.get
+    actionsVar.take
   }
 
   def getStmtTrace(memory: Memory, canFix: Boolean, isConditional: Boolean = false): StmtTraceFinalInfo = {
     invokeLater{ gui.getStmtTrace(memory, canFix, isConditional) }
-    stmtTraceVar.get match {
+    stmtTraceVar.take match {
       case StmtIntermediateInfo((actions, loops, newMemory)) =>
 	// TODO/FIXME: Does this really guarantee that I wake up the last waiter rather than a random one?  If I end up changing this, probably integrate SynthesisGUI.depth into that.
 	val stmts = synthesizer.genProgramAndFillHoles(memory, actions, false, loops)
@@ -48,7 +48,7 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
   }
   def getExprTrace(memory: Memory, canFix: Boolean): ExprTraceFinalInfo = {
     invokeLater{ gui.getExprTrace(canFix) }
-    exprTraceVar.get match {
+    exprTraceVar.take match {
       case ExprIntermediateInfo((enteredExpr, newMemory)) =>
 	val exprCode = synthesizer.genProgramAndFillHoles(memory, enteredExpr)
 	ExprInfo((enteredExpr, exprCode, newMemory))
@@ -143,12 +143,12 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
     } }
     return getCode(None)
   }
-  def getFixInfo(): FixInfo = fixInfo.get
+  def getFixInfo(): FixInfo = fixInfo.take
 
-  def setActions(actions: ActionsInfo) = actionsVar set actions
-  def setStmtTrace(trace: StmtTraceIntermediateInfo) = stmtTraceVar set trace
-  def setExprTrace(expr: ExprTraceIntermediateInfo) = exprTraceVar set expr
-  def setFixInfo(info: FixInfo) = fixInfo set info
+  def setActions(actions: ActionsInfo) = actionsVar put actions
+  def setStmtTrace(trace: StmtTraceIntermediateInfo) = stmtTraceVar put trace
+  def setExprTrace(expr: ExprTraceIntermediateInfo) = exprTraceVar put expr
+  def setFixInfo(info: FixInfo) = fixInfo put info
 
   // TODO/FIXME: I should do pruning here after genProgramAndFillHoles but before executeWithHelpFromUser.  That might reduce the num of questions I ask for later iterations.  But for that, I need to have access to the entire program up to this point.  Canvas' Tracer has the current unseen part, but I don't have everything before it.  Once I modify executeWithHelpFromUser to keep the whole program, I can have that.  Note that I can also add pruning to places inside executeWithHelpFromUser, perhaps after I get an unseen statement.
   def synthesizeLoop(initialMemory: Memory, firstIteration: Iterate, loops: TMap[Iterate, Loop], curMemory: Memory): LoopFinalInfo = {
@@ -201,14 +201,6 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
     gui = makeGUI(this, helperFunctions, objectTypes, objectComparators, fieldLayouts, objectLayouts)
   }
 
-}
-
-private class SingleUseSyncVar[T] extends SyncVar[T] with Serializable {
-  override def get = synchronized {
-    val x = super.get
-    unset
-    x
-  }
 }
 
 object Controller {

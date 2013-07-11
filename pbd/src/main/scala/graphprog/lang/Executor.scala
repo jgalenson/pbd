@@ -145,6 +145,7 @@ class Executor(private val functions: Map[String, Program], private val printer:
 	oldMemory.reverse.foreach{ m => memory.mem.push(MMap[String, Value]() ++ (m.map{ kv => (kv._1, snapshotMemory(kv._1)) })) }
 	snapshotMemory.keys.filter{ k => !memory.contains(k) }.foreach{ k => memory += (k -> snapshotMemory(k)) }  // Add in new variables from the snapshot.
 	UnitConstant
+      case UnknownJoinIf(_, _) => throw new ExecuteError(s, "Cannot execute: " + s)
     }
   }
   protected def doLoop(memory: Memory, l: Loop): Value = {
@@ -254,7 +255,7 @@ class Executor(private val functions: Map[String, Program], private val printer:
 	val min = evalInt(memory, r.min)
 	val max = evalInt(memory, r.max)
 	val range = if (r.isInclusive) min to max else min until max
-	IntArray(Int.MinValue, range toArray)  // TODO-bug: min value might be used
+	IntArray(Int.MinValue, range.toArray)  // TODO-bug: min value might be used
       case EQ(l, r) => handleEquality(l, r)
       case NE(l, r) => handleDisequality(l, r)
       case LT(l, r) => handleIntComparison(l, r, _ < _)
@@ -362,7 +363,7 @@ object Executor {
 
   protected[graphprog] def simpleHoleHandler(executor: Executor)(memory: Memory, hole: Hole): Stmt = hole match {
     case PossibilitiesHole(possibilities) => 
-      val results = possibilities flatMap { s => try { val (v, m) = executor.execute(memory, s); if (v == ErrorConstant) Nil else List((s, v, m)) } catch { case _ => Nil } }  // TODO: I shouldn't need the catch here: all errors that can arise should return ErrorConstants in execute.  Same in findFirstNewRandomInput, in findBest*, in fillHoles.genExpr, and in simpleInputPruning.
+      val results = possibilities flatMap { s => try { val (v, m) = executor.execute(memory, s); if (v == ErrorConstant) Nil else List((s, v, m)) } catch { case _: Throwable => Nil } }  // TODO: I shouldn't need the catch here: all errors that can arise should return ErrorConstants in execute.  Same in findFirstNewRandomInput, in findBest*, in fillHoles.genExpr, and in simpleInputPruning.
       if (results.size == 0)
 	ErrorConstant
       else if (results.size == possibilities.size && holdsOverIterable(results, (x: (Stmt, Value, Memory), y: (Stmt, Value, Memory)) => areEquivalent(x._2, y._2, x._3, y._3)))
@@ -370,6 +371,7 @@ object Executor {
       else
 	ErrorConstant
     case _: Unseen => ErrorConstant
+    case _: EvidenceHole => throw new ExecuteError(hole.asInstanceOf[Stmt], "Cannot handle evidence hole")
   }
 
   protected[graphprog] class InterruptedException extends FastException

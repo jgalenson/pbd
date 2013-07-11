@@ -166,7 +166,7 @@ protected[graphprog] class Typer(functions: Map[String, Program], objectTypes: M
     case c: Comparison => BooleanType
     case Not(_) => BooleanType
     case a: Arithmetic => IntType
-    case s => throw new RuntimeException("Cannot get the type of stmt " + s + " without memory.")
+    case s => throw new IllegalArgumentException("Cannot get the type of stmt " + s + " without memory.")
   }
   protected[graphprog] def typeOfAction(a: Action, memory: Memory): Type = a match {
     case e: Expr => typeOfExpr(e, memory)
@@ -180,11 +180,13 @@ protected[graphprog] class Typer(functions: Map[String, Program], objectTypes: M
     case LiteralAction(a) => typeOfAction(a, memory)
     case UnorderedStmts(_) => UnitType
     case Snapshot(_) => UnitType
+    case UnseenStmt() => throw new IllegalArgumentException("Cannot get type of UnseenStmt")
   }
   private def typeOfStmt(s: Stmt, memory: Memory): Type = s match {
     case a: Action => typeOfAction(a, memory)
-    case If(_, _, _, _) => UnitType
+    case If(_, _, _, _) | UnknownJoinIf(_, _) => UnitType
     case Loop(_, _) => UnitType
+    case StmtEvidenceHole(_) => throw new IllegalArgumentException("Cannot get type of " + s)
   }
 
   protected[graphprog] def canAssign(lhs: Expr, rhs: Expr): Boolean = {
@@ -385,7 +387,7 @@ object ASTUtils {
     val newObjectIDs = newObjectMap.keys.toSet
     val newArrayIDs = newArrayMap.keys.toSet
     val newVars = newKeySet diff oldKeySet map { key => (key, newMemory(key)) }
-    val modifiedVars = newKeySet intersect oldKeySet collect { case n if !areEqual(memory(n), newMemory(n), false, false) => (n, newMemory(n)) }
+    val modifiedVars = newKeySet.intersect(oldKeySet).collect{ case n: String if !areEqual(memory(n), newMemory(n), false, false) => (n, newMemory(n)) }
     val modifiedObjects = newObjectIDs intersect oldObjectIDs flatMap { id => {
       val oldFields = oldObjectMap(id).fields
       val newFields = newObjectMap(id).fields
@@ -405,7 +407,7 @@ object ASTUtils {
       assert(newArray.size == oldArray.size)
       oldArray.zip(newArray).zipWithIndex collect { case ((o, n), i) if o != n => ((id, i), n) }
     }}
-    ((newVars ++ modifiedVars) toMap, modifiedObjects toMap, modifiedArrays toMap)
+    ((newVars ++ modifiedVars).toMap, modifiedObjects.toMap, modifiedArrays.toMap)
   }
 
   // blockMarker stores (first stmt in block, first stmt after block), which has already determined to be legal.  If the two statements are the same, the block is empty.

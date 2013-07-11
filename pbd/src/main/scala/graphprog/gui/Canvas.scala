@@ -461,6 +461,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	if (mode.joinFinder.isDefined)
 	  findJoin(mode)
       case (_: ExprTrace, e: Expr) => finishExprTraceMode(e)
+      case _ => throw new IllegalArgumentException
     }
   }
   private def doExpr(mode: Trace, shape: Shape) {
@@ -602,6 +603,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
       arrLens -= id
       pointees -= Some(shape)
     case Field(f, _) => removeShape(f)
+    case _ => throw new IllegalArgumentException(shape.toString)
   }
   def removeArrow(a: Arrow) {
     if (pointees contains a.target)
@@ -704,6 +706,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	  f2.foreach{ kv => updateShape(fields(id1)(kv._1), kv._2) }  // This must be f2 and not f1, since f1's rhs are ours, which might not have their changes.
 	case (c: Child[_, _], _) => updateShape(c.child, value, false)
 	case (_: NullShape, Null) =>
+	case _ => throw new RuntimeException
       }
       if (updateWH)
 	updateWidthAndHeight(shape, false, g)
@@ -788,7 +791,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     val layableObjs = allObjs.filter{ o => objectLayouts contains o.data.typ }
     val (widthFn, heightFn) = ((v: Value) => widthOfVal(v, g, fieldLayouts), (v: Value) => heightOfVal(v, g, fieldLayouts))
     // TODO-lowish: I can use objectComparators, if applicable, to sort rather than laying each thing out.
-    val layoutInfos = layableObjs.map{ o => (o, try { objectLayouts(o.data.typ)(o.data, widthFn, heightFn, OBJECT_SPACING) } catch { case _ => Nil }) }.toMap  // We might be in the middle of a trace with inconsistent objects, so the layout call could fail.
+    val layoutInfos = layableObjs.map{ o => (o, try { objectLayouts(o.data.typ)(o.data, widthFn, heightFn, OBJECT_SPACING) } catch { case _: Throwable => Nil }) }.toMap  // We might be in the middle of a trace with inconsistent objects, so the layout call could fail.
     @tailrec def doLayouts(shapesToLayout: ISet[Obj], secondTrys: ISet[Int]) {
       if (shapesToLayout.isEmpty)  // We've placed all the shapes, so return
 	return
@@ -1047,10 +1050,10 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	case e => getShape(partiallyEvaluateExpr(e), isLHS)
       }
     }
-    def partiallyEvaluateAction(a: Action): Action = a match {
+    /*def partiallyEvaluateAction(a: Action): Action = a match {
       case Assign(l, r) => Assign(partiallyEvaluateExpr(l).asInstanceOf[LVal], partiallyEvaluateExpr(r))
       case e: Expr => partiallyEvaluateExpr(e)
-    }
+    }*/
     def partiallyEvaluateExpr(e: Expr): Expr = e match {
       case IntArrayAccess(array, index) => IntArrayAccess(executor.evaluate(mem, array), executor.evaluate(mem, index))
       case FieldAccess(obj, field) =>
@@ -1104,6 +1107,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	val lefts = possibilitiesMap.keySet.toSet
 	val rights = possibilitiesMap.values.foldLeft(ISet.empty[Shape]){ (acc, cur) => acc ++ cur.keySet }
 	mode = AssignQuery(possibilitiesMap, lefts, rights, rightMap, newShapes.toSet, arrows)
+      case e => throw new IllegalArgumentException(e.toString)
     }
     addMouseMotionListener(tooltipListener)
     addMouseMotionListener(callHoverListener)
@@ -1273,7 +1277,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
       smartRepaintBounds(curNewShapes flatMap getAllBounds)
       true
     } catch {
-      case e =>
+      case e: Throwable =>
 	e.printStackTrace()
 	val msg = e match {
 	  case IllegalAction(msg) => msg
@@ -1376,6 +1380,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	  addDiffArrow(arrow, p, false)
 	  oldDiffArrows += p.arrow
 	case c: Child[_, _] => updateShape(c.child, v, c)
+	case s => throw new IllegalArgumentException(s.toString)
       }
       updateShape(s, v, s)
     }

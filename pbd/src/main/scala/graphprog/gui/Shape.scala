@@ -345,6 +345,7 @@ protected[gui] object Shape {
 	case IntArrAccess(e, i, IntArr(IntArray(_, array), _, _, _, _)) =>
 	  array(i) = shapeToValue(rhs).asInstanceOf[IntConstant].n
 	  updateGUIWithAssignment(e, rhs)
+	case s => throw new IllegalArgumentException(s.toString)
       }
     }
     updateGUIWithAssignment(lhs, rhs)

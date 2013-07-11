@@ -197,6 +197,7 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
 	case op: BinaryOp => max2(op.lhs, op.rhs) + 1
 	case Not(e) => getDepth(e) + 1
 	case LiteralExpr(e) => getDepth(e)
+	case _: Hole => throw new IllegalArgumentException(e.toString)
       } } + { if (isDoubleInfix(e)) 1 else 0 }
     }
     //def soe(e: Expr): String = shortPrinter.stringOfExpr(e)
@@ -232,7 +233,7 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
 
   private def genExpr(evidence: Iterable[(Action, Memory)], maxDepth: Int): Iterable[Expr] = {
     def binaryOpHelper(constructor: (Expr, Expr) => Expr, isCommutative: Boolean): Iterable[Expr] = {
-      val x = evidence collect { case (b: BinaryOp, m) => ((b.lhs, m), (b.rhs, m)) } unzip
+      val x = evidence.collect{ case (b: BinaryOp, m) => ((b.lhs, m), (b.rhs, m)) }.unzip
       val leftExprs = genExpr(x._1, maxDepth)
       val rightExprs = genExpr(x._2, maxDepth)
       val choices = for (l <- leftExprs; r <- rightExprs if l != r) yield constructor(l, r)
@@ -272,7 +273,7 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
     def genStmt(evidence: Iterable[(Action, Memory)], maxDepth: Int): Iterable[Stmt] = evidence.head._1 match {
       case _: Expr => genExpr(evidence, maxDepth)
       case Assign(l, _) =>
-	val assignEvidence = evidence map { case (a: Assign, m) => (a, m) case s => throw new RuntimeException("Unexpected stmt: " + s) }
+	val assignEvidence = evidence map { case (a: Assign, m) => (a, m) case s => throw new IllegalArgumentException("Unexpected stmt: " + s) }
 	if (holdsOverIterable(assignEvidence map { case (Assign(l, _), _) => l }, ((x: LVal, y: LVal) => x == y)) && (l match { case FieldAccess(ObjectID(_), _) | IntArrayAccess(ArrayID(_), _) => false case _ => true })) {  // TODO: I should really check l thoroughly, not just at the first level like this.
 	  val exprEvidence = assignEvidence map { case (Assign(_, r), m) => (r, m) }
 	  val allExprs = genExpr(exprEvidence, maxDepth) filter { _ != l }
@@ -286,11 +287,12 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
 	  val field = assignEvidence.head._1 match { case Assign(FieldAccess(_, f), _) => Some(f) case _ => None }
 	  for (l <- leftExprs; r <- rightExprs if l != r) yield field match { case Some(f) => Assign(FieldAccess(l, f), r) case None => Assign(l, r) }
 	}
+      case _ => throw new IllegalArgumentException(evidence.head._1.toString)
     }
     def genLoopCondition(evidence: Iterable[(Action, Memory)], depth: Int): Iterable[Stmt] = {
       def handleForLoop(v: Var, evidence: Iterable[(Action, Memory)]): Iterable[Stmt] = {
 	val name = v.name
-	val assigns = evidence flatMap { case (Assign(_, r), m) => List((r, m)) case (i @ In(Var(n), r), m) => val res = defaultExecutor.execute(m, i); if (res._1.isInstanceOf[BooleanConstant]) Nil else if (m.contains(n)) List((IntConstant(m(n).asInstanceOf[IntConstant].n + 1), m)) else if (res._2 contains name) List((r.min, m)) else Nil case (Break, _) => Nil }
+	val assigns = evidence flatMap { case (Assign(_, r), m) => List((r, m)) case (i @ In(Var(n), r), m) => val res = defaultExecutor.execute(m, i); if (res._1.isInstanceOf[BooleanConstant]) Nil else if (m.contains(n)) List((IntConstant(m(n).asInstanceOf[IntConstant].n + 1), m)) else if (res._2 contains name) List((r.min, m)) else Nil case (Break, _) => Nil case e => throw new IllegalArgumentException(e.toString) }
 	val exprs = {
 	  def minChecker(e: Expr, a: Action, m: Memory): Boolean = defaultExecutor.evaluateBoolean(m, if (m contains name) LT(e, a.asInstanceOf[Expr]) else EQ(e, a.asInstanceOf[Expr]))
 	  val mins = genAllExprs(assigns, depth, Some(minChecker))

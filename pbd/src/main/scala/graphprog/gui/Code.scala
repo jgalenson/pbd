@@ -190,7 +190,7 @@ protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, priva
       }
       s.flatMap{ s => addStmt(s, parent, indent, isCurrent, isFailing) }.toList
     }
-    val items = addStmts(stmts, None, "", false, false).filterNot{ _ == Nil }
+    val items = addStmts(stmts, None, "", false, false)
     def coalesceElses(l: List[ListData]): List[ListData] = l match {
       case x :: y :: rest => (x.displayStr, y.displayStr) match {
 	case (s1: String, s2: String) if s1.matches("(?:&nbsp;)*}") && s2.startsWith("else") => (x copy (displayStr = (s1 + " " + s2))) :: coalesceElses(rest)  // TODO: Probably won't work for elses with non-zero indent.

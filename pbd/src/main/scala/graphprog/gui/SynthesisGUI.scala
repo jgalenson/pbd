@@ -246,9 +246,9 @@ object SynthesisGUI {
   def makeGUI(controller: Controller, helperFunctions: Map[String, Program], objectTypes: Map[String, List[(String, Type)]], objectComparators: Map[String, (Value, Value) => Int], fieldLayouts: Map[String, List[List[String]]], objectLayouts: Map[String, ObjectLayout]): SynthesisGUI = {
     val waiter = new scala.concurrent.SyncVar[SynthesisGUI]
     javax.swing.SwingUtilities.invokeLater(new Runnable() {
-      def run() = waiter.set(new SynthesisGUI(controller, helperFunctions, objectTypes, objectComparators, fieldLayouts, objectLayouts))
+      def run() = waiter.put(new SynthesisGUI(controller, helperFunctions, objectTypes, objectComparators, fieldLayouts, objectLayouts))
     })
-    waiter.get
+    waiter.take
   }
 
   def showError(owner: java.awt.Component, error: String) = JOptionPane.showMessageDialog(owner, error, error, JOptionPane.ERROR_MESSAGE)

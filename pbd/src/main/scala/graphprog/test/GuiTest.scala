@@ -14,7 +14,7 @@ object GuiTest {
 
   val printer = new graphprog.lang.Printer(Map[String, Value => String](), false)
 
-  def mapOfPrograms(programs: Program*): IMap[String, Program] = programs map { p => (p.name, p) } toMap
+  def mapOfPrograms(programs: Program*): IMap[String, Program] = programs.map{ p => (p.name, p) }.toMap
 
   def main(args: Array[String]) {
     val options = parseCommandLine(args)
@@ -204,7 +204,7 @@ object GuiTest {
 	val result = synthesize((new Memory(inputs)).toIterator.toList, makeSynthesizer(name, typ, graphprog.lang.Typer.typeOfInputs(inputs), functions, objectTypes, postcondition = postcondition, objectComparators = objectComparators) _, functions, objectTypes, objectComparators, fieldLayouts, objectLayouts, options)
 	println("Result:\n" + printer.stringOfProgram(result))
       } catch {
-	case e => e.printStackTrace
+	case e: Throwable => e.printStackTrace
       }
     }
 

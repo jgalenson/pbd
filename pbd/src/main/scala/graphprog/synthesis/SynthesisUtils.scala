@@ -24,7 +24,7 @@ object SynthesisUtils {
     else if (numPossibilities == 1)
       possibilities.head
     else
-      PossibilitiesHole(possibilities toList).asInstanceOf[T]
+      PossibilitiesHole(possibilities.toList).asInstanceOf[T]
   }
   protected[synthesis]  def possibilitiesToStmt(hole: PossibilitiesHole, possibilities: Iterable[Stmt]): Stmt = {
     if (possibilities.size == hole.possibilities.size)

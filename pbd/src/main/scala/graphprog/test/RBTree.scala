@@ -135,7 +135,7 @@ object RBTree {
       val result = synthesize(trace, makeSynthesizerFromTrace(trace, printHelpers, generator, None, None, treeComparator) _, trace.functions, trace.objectTypes, treeComparator, fieldLayouts, treeLayout, options)
       println("Result:\n" + printer.stringOfProgram(result))
     } catch {
-      case e => e.printStackTrace
+      case e: Throwable => e.printStackTrace
     }
   }
   def test(name: String, typ: Type, inputs: List[(String, Value)], generator: Option[Double => List[(String, Value)]], precondition: Option[Map[String, Value] => Boolean], postcondition: Option[(Map[String, Value], Map[String, Value], Value) => Boolean], functions: Map[String, Program], objectTypes: Map[String, List[(String, Type)]], fieldLayouts: Map[String, List[List[String]]], options: Options) {
@@ -143,7 +143,7 @@ object RBTree {
       val result = synthesize(inputs, makeSynthesizer(name, typ, graphprog.lang.Typer.typeOfInputs(inputs), functions, objectTypes, printHelpers, generator, precondition, postcondition, treeComparator) _, functions, objectTypes, treeComparator, fieldLayouts, treeLayout, options)
       println("Result:\n" + printer.stringOfProgram(result))
     } catch {
-      case e => e.printStackTrace
+      case e: Throwable => e.printStackTrace
     }
   }
 

@@ -56,7 +56,7 @@ object Test {
 	val result = synthesize(trace, makeSynthesizerFromTrace(trace, printHelpers, precondition = precondition, postcondition = postcondition, objectComparators = objectComparators) _, trace.functions, trace.objectTypes, objectComparators, fieldLayouts, objectLayouts, options)
 	println("Result:\n" + printer.stringOfProgram(result))
       } catch {
-	case e => e.printStackTrace
+	case e: Throwable => e.printStackTrace
       }
     }
 

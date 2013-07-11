@@ -33,7 +33,7 @@ object TestExecution {
       try {
 	test(memory, stmts, functions)
       } catch {
-	case e =>
+	case e: Throwable =>
 	  println("Good, we caught the error " + e)
 	  return
       }
@@ -295,7 +295,7 @@ object TestExecution {
     println("")
     test(new Memory, List(
       If(UnseenExpr(), List(Assert(false)), Nil, List(Assert(false)))
-    ), Map.empty, Some((m, h) => h match { case _: Unseen => ErrorConstant }))
+    ), Map.empty, Some((m, h) => h match { case _: Unseen => ErrorConstant case _ => throw new IllegalArgumentException }))
 
   }
 

@@ -54,7 +54,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     //traces foreach { t => println(utils.stringOfTrace(t)) }
     def genProgramFromCompleteTracesRec(ast: List[Stmt], traces: List[(List[Action], Memory)]): List[Stmt] = {
       //println(iterableToString(traces, " and ", (t: (List[Action], Memory)) => "[" + utils.stringOfStmts(t._1, t._2) + "]") + ".")
-      if (traces isEmpty)
+      if (traces.isEmpty)
 	return ast :+ UnseenStmt()
       if (traces.head._1.isEmpty)
 	return ast
@@ -119,8 +119,9 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     def genRandom(inputs: List[(String, Type)]): List[(String, Value)] = inputs map { t => (t._1, t._2 match {
       case IntType => IntConstant(nextBoundedInt(l, u))
       case BooleanType => BooleanConstant(nextBoolean())
-      case ArrayType(IntType) => IntArray(getID(), (0 until nextInt(arraySize)) map { _ => nextBoundedInt(l, u) } toArray)
+      case ArrayType(IntType) => IntArray(getID(), (0 until nextInt(arraySize)).map{ _ => nextBoundedInt(l, u) }.toArray)
       case ObjectType(typ) => if (nextFloat() < NULL_PROBABILITY) Null else Object(getID(), typ, Map.empty ++ genRandom(objectTypes(typ)))
+      case ArrayType(_) => throw new IllegalArgumentException("Cannot handle non-integer arrays.")
     })}
     genRandom(inputTypes)
   }
@@ -133,7 +134,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
       val maxInputs = EXPLORATION_BOUNDS.foldLeft(0){ (acc, cur) => acc + cur._1 }
       val sizes = {
 	val start = math.round(inputSize * 10)
-	(0 until 10).sortWith{ (x, y) => val xDiff = math.abs(x - start); val yDiff = math.abs(y - start); if (xDiff < yDiff) true else if (xDiff > yDiff) false else if (inputSize >= 0.5) x < y else y < x }.map{ _ / 10. }
+	(0 until 10).sortWith{ (x, y) => val xDiff = math.abs(x - start); val yDiff = math.abs(y - start); if (xDiff < yDiff) true else if (xDiff > yDiff) false else if (inputSize >= 0.5) x < y else y < x }.map{ _ / 10.0 }
       }
       for (i <- 0 until maxInputs) {
 	val size = sizes((i / maxInputs.toDouble * 10).toInt)
@@ -144,9 +145,9 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
       None
     case None =>
       val bounds = {  // Order bounds based on inputSize.
-	if (inputSize <= 1/3.)
+	if (inputSize <= 1/3.0)
 	  EXPLORATION_BOUNDS
-	else if (inputSize <= 2/3.)
+	else if (inputSize <= 2/3.0)
 	  EXPLORATION_BOUNDS(1) :: EXPLORATION_BOUNDS(0) :: List(EXPLORATION_BOUNDS(2))
 	else
 	  EXPLORATION_BOUNDS.reverse
@@ -171,7 +172,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
    * generate.  Numbers closer to 0 are smaller.
    */
   private def findFirstNewRandomInput(code: List[Stmt], inputSize: Double): Option[List[(String, Value)]] = {
-    def tryInput(input: List[(String, Value)]): Boolean = try { executeProgram(simpleHoleHandlerExecutor, input, code)._1 == ErrorConstant } catch { case _ => true } // We clone the memory so we don't mutate the original input.
+    def tryInput(input: List[(String, Value)]): Boolean = try { executeProgram(simpleHoleHandlerExecutor, input, code)._1 == ErrorConstant } catch { case _: Throwable => true } // We clone the memory so we don't mutate the original input.
     findFirstRandomInput(inputSize, Some(i => tryInput(i)))
   }
 
@@ -224,7 +225,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     def runFn(input: List[(String, Value)]): Option[FirstQuestionHole] = {
       def holeHandler(input: List[Value])(memory: Memory, hole: Hole): Stmt = hole match {
 	case PossibilitiesHole(possibilities) => 
-	  val results = possibilities flatMap { s => try { val (v, m) = defaultExecutor.execute(memory, s); if (v == ErrorConstant) Nil else List((s, v, m)) } catch { case _ => Nil } }
+	  val results = possibilities flatMap { s => try { val (v, m) = defaultExecutor.execute(memory, s); if (v == ErrorConstant) Nil else List((s, v, m)) } catch { case _: Throwable => Nil } }
           if (results.size == 0)
 	    FirstQuestionHole(input, hole, Nil)
           else if (results.size == possibilities.size && holdsOverIterable(results, (x: (Stmt, Value, Memory), y: (Stmt, Value, Memory)) => areEquivalent(x._2, y._2, x._3, y._3)))
@@ -232,6 +233,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	  else
 	    FirstQuestionHole(input, hole, results.foldLeft(List[Value]()){ (acc, cur) => if (acc.find{ v => areEqual(cur._2, v, true, true) }.isDefined) acc else cur._2 :: acc })  // List the unique values.
 	case _: Unseen => FirstQuestionHole(input, hole, Nil)
+	case _: EvidenceHole => throw new IllegalArgumentException(hole.toString)
       }
       val executor = new Executor(functions, longPrinter, holeHandler(input.map{ _._2 }))
       executeProgram(executor, input, code)._1 match {
@@ -435,7 +437,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     var pruneBeforeNextDisambiguation = false
     def executeWithHelpFromUserHelper(memory: Memory, stmts: List[Stmt], newStmts: IMap[Stmt, Stmt], newBlocks: IMap[Stmt, List[Stmt]], indent: String, printFn: String => Unit = print): ((Memory, List[Action], IMap[Stmt, Stmt], IMap[Stmt, List[Stmt]]), Boolean) = {
       // Parse a string, retrying if the user gives us an illegal string.
-      def parse(inputFn: => String, failFn: => List[Action], indent: String): List[Action] = {
+      /*def parse(inputFn: => String, failFn: => List[Action], indent: String): List[Action] = {
 	try {
 	  graphprog.lang.Compiler.parse(inputFn)
 	} catch {
@@ -463,7 +465,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	  case s => parse(prefix + s, List(getActionFromUser(possibilities, indent, prefix)), indent).head
 	}
 	stmt
-      }
+      }*/
       def noprint(s: String) = ()
       def myprint(s: String) = printFn(indent + s)
       def myprintln(s: String) = printFn(indent + s + "\n")
@@ -565,7 +567,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 		println(indent + Console.RED + "**" + Console.RESET + "Please finish statement: " + holeString)
 		println(indent + "Memory is: " + longPrinter.stringOfMemory(memory))
 		// Get the current action from the user, retrying if they give us something we are not expecting (e.g. make a typo).
-		def getActionText(isFirstTry: Boolean): (List[Action], Value, Memory) = {
+		/*def getActionText(isFirstTry: Boolean): (List[Action], Value, Memory) = {
 		  // TODO: Incomplete printing help (fill in as needed).
 		  if (isFirstTry)
 		    print(indent + "Possibilities are: ")
@@ -606,7 +608,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 		      println(indent + "You entered something illegal.  Please try again.")
 		      getActionText(false)
 		  }
-		}
+		}*/
 		// Gets the current action from the user via the GUI.
 		def getActionGUI(): (List[Action], Value, Memory) = {
 		  val actions = controller.getActions(newPossibilities.asInstanceOf[List[Action]], amFixing)
@@ -618,6 +620,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 		    case Fix if amFixing => controller.getFixInfo() match {
 		      case code: CodeInfo => throw new FixedCode(Some(actualCurStmt), code)
 		      case e: EndTrace => throw new SkipTrace(e, newStmts, newBlocks)
+		      case x => throw new IllegalArgumentException(x.toString)
 		    }
 		    case Fix if !amFixing => throw new FixCode("you asked to change it", None)
 		    case e: EndTrace => throw new SkipTrace(e, newStmts, newBlocks)
@@ -636,12 +639,12 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	    case unseen: Unseen =>
 	      updateDisplayShort()
 	      println(indent + Console.RED + "**" + Console.RESET + "We have not seen this path before.  Please finish the trace.")
-	      def getTraceText(): (Memory, List[Action], List[Stmt]) = {
+	      /*def getTraceText(): (Memory, List[Action], List[Stmt]) = {
 		val actions = getTraceFromUser(indent)
 		val (holes, newMemory) = actions.foldLeft((List[Stmt](), memory)){ case ((stmts, memory), cur) => (stmts :+ StmtEvidenceHole(List((cur, memory))), defaultExecutor.execute(memory, cur)._2) }
 		val curStmts = codeGenerator.fillHoles(holes, false)
 		(newMemory, actions, curStmts)
-	      }
+	      }*/
 	      def getTraceGUI(): (Memory, List[Action], List[Stmt]) = {
 		def getTrace[T](getter: Option[T]): T = getter match {
 		  case Some(r) => r
@@ -961,7 +964,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	findFirstRandomInput(curRound / NUM_FINAL_CHECKS.toDouble, None) match {
 	  case None => None
 	  case inputOpt @ Some(input) =>
-	    val (result, resMem) = try { executeProgram(simpleHoleHandlerExecutor, input, code) } catch { case _ => return Some((input, true)) }
+	    val (result, resMem) = try { executeProgram(simpleHoleHandlerExecutor, input, code) } catch { case _: Throwable => return Some((input, true)) }
 	    if (isErrorOrFailure(result))
 	      return Some((input, true))
 	    postcondition match {
@@ -1102,7 +1105,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 		  case None => goods += ((pRes, pMem, ListBuffer[Stmt](cur)))
 		}
 	      } catch {
-		case _ => fails += cur  // Put failing possibilities together, since they could be in a loop and made failing by something that comes after them.
+		case _: Throwable => fails += cur  // Put failing possibilities together, since they could be in a loop and made failing by something that comes after them.
 	      }
 	    } }
 	    val all = goods.map{ _._3.toList }
@@ -1130,6 +1133,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	      curHolesSeen += h
 	      result
 	    case _: Unseen => AbortOnUnknown  // Stop searching when we hit an unseen statement.
+	    case _: EvidenceHole => throw new IllegalArgumentException(hole.toString)
 	  }
 	}
 	val executor = new Executor(functions, longPrinter, holeHandler) {
@@ -1223,7 +1227,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     def holeHandler(memory: Memory, hole: Hole): Stmt = hole match {
       case hole @ PossibilitiesHole(p) =>
 	val possibilities = newPossibilitiesMap.getOrElse(hole, p)
-	val results = possibilities flatMap { s => try { val (v, m) = defaultExecutor.execute(memory, s); if (isErrorOrFailure(v)) Nil else List((s, v, m)) } catch { case _ => Nil } }
+	val results = possibilities flatMap { s => try { val (v, m) = defaultExecutor.execute(memory, s); if (isErrorOrFailure(v)) Nil else List((s, v, m)) } catch { case _: Throwable => Nil } }
         if (results.size == 0)
 	  return ErrorHit(hole)
 	if (results.size < possibilities.size)
@@ -1233,9 +1237,10 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	else
 	  UnableToContinue
       case _: Unseen => UnseenHit
+      case _: EvidenceHole => throw new IllegalArgumentException(hole.toString)
     }
     val executor = new Executor(functions, longPrinter, holeHandler)
-    val (result, resMem) = try { executeProgram(executor, input, code) } catch { case _ => (ErrorConstant, new Memory(input)) }
+    val (result, resMem) = try { executeProgram(executor, input, code) } catch { case _: Throwable => (ErrorConstant, new Memory(input)) }
     val errorOrFailure = isErrorOrFailure(result)
     if (result != UnseenHit && result != UnableToContinue && (errorOrFailure || (postcondition match { case Some(p) => !p(input.toMap, resMem.toMap, result) case _ => false }))) {
       val (reason, stmt) = result match {
@@ -1305,7 +1310,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
       val evidence = ListBuffer.empty[(Value, Memory)]
       def holeHandler(memory: Memory, hole: Hole): Stmt = hole match {
 	case hole @ PossibilitiesHole(p) =>
-	  val results = p flatMap { s => try { val (v, m) = defaultExecutor.execute(memory, s); if (isErrorOrFailure(v)) Nil else List((s, v, m)) } catch { case _ => Nil } }
+	  val results = p flatMap { s => try { val (v, m) = defaultExecutor.execute(memory, s); if (isErrorOrFailure(v)) Nil else List((s, v, m)) } catch { case _: Throwable => Nil } }
 	  assert(holdsOverIterable(results, (x: (Stmt, Value, Memory), y: (Stmt, Value, Memory)) => areEquivalent(x._2, y._2, x._3, y._3)))
 	  results.head._1
 	case _: UnseenExpr if hole eq unseen =>

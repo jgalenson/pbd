@@ -76,8 +76,9 @@ object AST {
   case class Conditional(condition: Expr, body: List[Action]) extends Action
 
   sealed trait Hole
-  case class ExprEvidenceHole(evidence: List[(Expr, Memory)]) extends Expr with Hole
-  case class StmtEvidenceHole(evidence: List[(Action, Memory)]) extends Stmt with Hole
+  sealed trait EvidenceHole extends Hole
+  case class ExprEvidenceHole(evidence: List[(Expr, Memory)]) extends Expr with EvidenceHole
+  case class StmtEvidenceHole(evidence: List[(Action, Memory)]) extends Stmt with EvidenceHole
   case class PossibilitiesHole(possibilities: List[Stmt]) extends Expr with Hole {
     override def equals(o: Any) = o match { case o: AnyRef => this eq o case _ => false }  // Compare holes by reference so two holes that look the same are not equal (needed for pruning).
   }
@@ -126,8 +127,8 @@ object AST {
     }
     def apply(key: String): Value = mem.find{ _ contains key }.get(key)
     def contains(key: String): Boolean = mem.find{ _ contains key}.isDefined
-    protected[graphprog] def enterScope: Unit = mem push MMap[String, Value]()
-    protected[graphprog] def exitScope: Unit = mem pop
+    protected[graphprog] def enterScope: Unit = mem.push(MMap[String, Value]())
+    protected[graphprog] def exitScope: Unit = mem.pop
     def keys: Iterable[String] = mem flatMap { _.keys }
     override def clone: Memory = {
       val (objects, arrays) = getObjectsAndArrays()

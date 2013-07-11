@@ -6,6 +6,7 @@ protected[test] object TestCommon {
   import graphprog.Utils._
   import graphprog.Controller.Options
   import scala.annotation.tailrec
+  import scala.language.implicitConversions
 
   implicit def string2Var(s: String) = Var(s)
   implicit def int2IntConstant(n: Int) = IntConstant(n)
@@ -23,7 +24,7 @@ protected[test] object TestCommon {
   val reverseProgram = Program("reverse", ObjectType("Node"), List(("list", ObjectType("Node"))), Map.empty, Map.empty, List( Assign("cur", "list"), Assign("prev", Null), Loop(NE("cur", Null), List(UnorderedStmts(List(Assign(FieldAccess("cur", "next"), "prev"), Assign("cur", FieldAccess("cur", "next")), Assign("prev", "cur"))))), "prev" ))
   val selectionSortProgram = Program("selectionSort", UnitType, List(("a", ArrayType(IntType))), mapOfPrograms(swapProgram), Map.empty, List( Loop(In("i", Until(0, Minus(ArrayLength("a"), 1))), List(Assign("min", "i"), Loop(In("j", Until(Plus("i", 1), ArrayLength("a"))), List(If(LT(IntArrayAccess("a", "j"), IntArrayAccess("a", "min")), List(Assign("min", "j")), Nil, Nil))), Call("swap", List("a", "i", "min")))) ))
 
-  def mapOfPrograms(programs: Program*): Map[String, Program] = programs map { p => (p.name, p) } toMap
+  def mapOfPrograms(programs: Program*): Map[String, Program] = programs.map{ p => (p.name, p) }.toMap
 
   val listTypes = Map.empty + ("Node" -> List(("value", IntType), ("next", ObjectType("Node"))))
   val btreeTypes = Map.empty ++ List(("Node" -> List(("value", IntType), ("left", ObjectType("Node")), ("right", ObjectType("Node")), ("parent", ObjectType("Node")))), ("Tree" -> List(("root", ObjectType("Node")))))
