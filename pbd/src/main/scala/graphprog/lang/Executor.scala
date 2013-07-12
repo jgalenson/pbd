@@ -46,13 +46,13 @@ class Executor(private val functions: Map[String, Program], private val printer:
 	v
       case If(condition, thenBranch, elseIfPaths, elseBranch) => 
 	def executeBody(body: List[Stmt]): Value = {
-	  memory.enterScope
+	  memory.enterScope()
 	  val result = execStmts(memory, body)
-	  memory.exitScope
+	  memory.exitScope()
 	  result
 	}
 	val elseCondition = Not((condition :: (elseIfPaths map { _._1 })) reduceLeft { (acc, cur) => Or(acc, cur) })
-	val allPaths = ((condition, thenBranch) :: elseIfPaths) :+ (elseCondition, elseBranch)
+	val allPaths = ((condition, thenBranch) :: elseIfPaths) :+ ((elseCondition, elseBranch))
 	val curPaths = allPaths dropWhile { path => !path._1.isInstanceOf[Hole] && !evalBoolean(memory, path._1) }
 	val path = curPaths.head
 	if (path._1.isInstanceOf[Hole]) {
@@ -76,14 +76,14 @@ class Executor(private val functions: Map[String, Program], private val printer:
       case Assert(condition) =>
         if (evalBoolean(memory, condition)) UnitConstant else AssertFailed
       case Conditional(condition, body) => 
-	memory.enterScope
+	memory.enterScope()
 	val result = execStmts(memory, body)  // A Conditional shows the original condition, even if it is false on this trace, so just execute.
-	memory.exitScope
+	memory.exitScope()
 	result
       case l @ Loop(condition, body) =>
-	memory.enterScope
+	memory.enterScope()
 	val result = doLoop(memory, l)
-	memory.exitScope
+	memory.exitScope()
 	result
       case Iterate(iterations) => 
 	@tailrec def runIterate(iterations: List[(Action, List[Action])]): Value = iterations match {
@@ -104,9 +104,9 @@ class Executor(private val functions: Map[String, Program], private val printer:
 		runIterate(rest)
 	    }
 	}
-	memory.enterScope
+	memory.enterScope()
 	val result = runIterate(iterations)
-	memory.exitScope
+	memory.exitScope()
 	result
       case Break => BreakHit
       case Println(s) => 

@@ -39,7 +39,7 @@ protected[test] object TestCommon {
     def doLayout(list: Value, curX: Int): List[(Object, (Int, Int))] = (list: @unchecked) match {
       case Null => Nil
       case list @ Object(_, _, fields) =>
-	(list -> (curX, 0)) :: doLayout(list.fields("next"), curX + nodeWidth + spacing)
+	(list -> ((curX, 0))) :: doLayout(list.fields("next"), curX + nodeWidth + spacing)
     }
     doLayout(list, 0)
   }

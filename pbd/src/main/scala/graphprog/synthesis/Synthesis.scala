@@ -555,7 +555,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 		    Assign(l, firstResult)
 		}
 		if (amFixing)
-		  doFixStepShort(Some(firstPossMemory, newPossibilities.head, firstResult))
+		  doFixStepShort(Some((firstPossMemory, newPossibilities.head, firstResult)))
 		val newStmt = possibilitiesToStmt(curHole, newPossibilities)
 		updateHoleMaps(newStmt, newPossibilities map { _.asInstanceOf[Action] }, false)
 		((firstPossMemory, trace :+ action, newStmts + (curStmt -> newStmt), newBlocks), false)
@@ -699,7 +699,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 		resOpt match {
 		  case Some((v, m)) => 
 		    if (amFixing)
-		      doFixStepShort(Some(m, actualCurStmt, v))
+		      doFixStepShort(Some((m, actualCurStmt, v)))
 		    Some(m)
 		  case None =>
 		    doFixStepShort(None)
@@ -1349,7 +1349,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     // Finds (first stmt after potential join, iterator) for all potential joins.
     val legalIterators = {
       @tailrec def getLegalIterators(legalIterators: List[(Stmt, IteratorExecutor)]): List[(Stmt, IteratorExecutor)] = {
-	val newLegalIterators = legalIterators :+ (iteratorExecutor.getNext, iteratorExecutor.clone)
+	val newLegalIterators = legalIterators :+ ((iteratorExecutor.getNext, iteratorExecutor.clone))
 	val curParent = parents(iteratorExecutor.getNext)
 	iteratorExecutor.skipNext()
 	if (iteratorExecutor.hasNext && (parents(iteratorExecutor.getNext).eq(firstPossibleJoinStmtParent) || curParent.eq(firstPossibleJoinStmtParent)))  // We can go one beyond firstPossibleJoinStmtParent, which represents the conditional covering the whole block.

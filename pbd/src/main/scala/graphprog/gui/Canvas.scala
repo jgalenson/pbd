@@ -923,7 +923,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	  None
 	else {
 	  val (x, y) = (nextInt(screenWidth), nextInt(screenHeight))
-	  if (myIsOffscreen(x, y, w, h) || findShapesNear(x, y, w, h, shapes).nonEmpty) doRandomPlacement(n - 1) else Some(x, y)
+	  if (myIsOffscreen(x, y, w, h) || findShapesNear(x, y, w, h, shapes).nonEmpty) doRandomPlacement(n - 1) else Some((x, y))
 	}
       }
       doRandomPlacement(100)
@@ -1420,7 +1420,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     findJoin(curMode)  // We might alreayd know where the join point must be.
   }
 
-  def findJoin(mode: StmtTrace) {
+  private def findJoin(mode: StmtTrace) {
     val actions = getTraceModeActions(mode, false)
     mode.joinFinder.get(actions) match {
       case Some(newCode) => gui.finishFixing(newCode)

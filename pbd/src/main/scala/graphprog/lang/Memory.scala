@@ -20,8 +20,8 @@ class Memory(val mem: Stack[MMap[String, Value]]) extends Serializable {
   }
   def apply(key: String): Value = mem.find{ _ contains key }.get(key)
   def contains(key: String): Boolean = mem.find{ _ contains key}.isDefined
-  protected[graphprog] def enterScope: Unit = mem.push(MMap[String, Value]())
-  protected[graphprog] def exitScope: Unit = mem.pop
+  protected[graphprog] def enterScope(): Unit = mem.push(MMap[String, Value]())
+  protected[graphprog] def exitScope(): Unit = mem.pop
   def keys: Iterable[String] = mem flatMap { _.keys }
   
   override def clone: Memory = new Memory(cloneHelper(mem, Stack[MMap[String, Value]]()))

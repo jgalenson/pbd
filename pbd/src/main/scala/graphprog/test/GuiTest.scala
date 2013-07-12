@@ -40,14 +40,14 @@ object GuiTest {
 			      ("a2" -> arr),
 			      ("rec" -> rec)
 			     ))
-    mem.enterScope
+    mem.enterScope()
     mem += "a" -> arr
     mem += "z" -> true
     println(printer.stringOfMemory(mem))
     controller.updateDisplay(mem, Nil, Some(Null))
     readLine("Press Enter to update the display.")
     //Thread.sleep(2000)
-    mem.exitScope
+    mem.exitScope()
     mem += ("ping" -> 42)
     mem += ("x" -> 424242)
     mem("a2").asInstanceOf[IntArray].array(1) = 424242
