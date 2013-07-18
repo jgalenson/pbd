@@ -7,7 +7,7 @@ import Code._
 protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, private val model: DefaultListModel[ListData]) extends JList[ListData](model) {
 
   import graphprog.lang.AST.{ Stmt, Value, If }
-  import graphprog.lang.Printer
+  import graphprog.lang.{ Printer, PrettyPrinter }
   import graphprog.Utils._
   import graphprog.Controller.{ Breakpoint, NormalBreakpoint, ConditionalBreakpoint }
 
@@ -20,6 +20,7 @@ protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, priva
   private var breakpoints: List[Breakpoint] = Nil
 
   private val printer = new Printer(Map.empty, true)
+  private val prettyPrinter = new PrettyPrinter(Map.empty, true)
 
   def this(synthesisGUI: SynthesisGUI) = this(synthesisGUI, new DefaultListModel)
 
@@ -110,7 +111,6 @@ protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, priva
   // TODO: This code is ugly.  Clean it up and combine similar parts.
   def showCode(replacementStmts: Option[Iterable[Stmt]]) = {
     import graphprog.lang.AST.{ Conditional, Iterate, If, Loop, UnorderedStmts, Action, Expr, Unseen, PossibilitiesHole, UnknownJoinIf }
-    import graphprog.lang.Printer.prettyStringOfStmt
     replacedStmts = (curStmt, replacementStmts) match {
       case (Some(curStmt), Some(replacementStmts)) =>
 	def replaceAction(a: Action): List[Action] = a match {
@@ -163,7 +163,7 @@ protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, priva
 		case n => space + "{"
 	      })
 	    }
-	    val noEnd = makeElem(s, c.isDefined, getStartString(c => prettyStringOfStmt(c, printer), true), c.collect{ case p: PossibilitiesHole => getStartString(c => printer.stringOfStmt(c), false) }, false) :: body
+	    val noEnd = makeElem(s, c.isDefined, getStartString(c => prettyPrinter.stringOfStmt(c), true), c.collect{ case p: PossibilitiesHole => getStartString(c => printer.stringOfStmt(c), false) }, false) :: body
 	    if (body.size > 1)
 	      noEnd :+ makeElem(s, false, indent + "}")
 	    else
@@ -176,7 +176,7 @@ protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, priva
 	    case UnknownJoinIf(i, u) => addStmt(i, parent, indent, isCurrent, isFailing) ++ (if (u.nonEmpty) pathHelper("unknown", s, None, u) else Nil)
 	    case Loop(c, b) => pathHelper("loop", s, Some(c), b)
 	    case UnorderedStmts(stmts) => pathHelper("unordered", s, None, stmts)
-	    case s => List(makeElem(s, true, indent + prettyStringOfStmt(s, printer), if (s.isInstanceOf[PossibilitiesHole]) Some(printer.stringOfStmt(s)) else None))
+	    case s => List(makeElem(s, true, indent + prettyPrinter.stringOfStmt(s), if (s.isInstanceOf[PossibilitiesHole]) Some(printer.stringOfStmt(s)) else None))
 	  }
 	}
 	def isTargetStmt(s: Stmt, target: Option[Stmt]) = target match {

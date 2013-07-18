@@ -54,7 +54,7 @@ protected[graphprog] class Printer(helpers: PartialFunction[String, Value => Str
       case In(name, range) => stringOfExpr(name) + " in " + stringOfExpr(range)
       case To(min, max) => stringOfExpr(min) + " to " + stringOfExpr(max)
       case Until(min, max) => stringOfExpr(min) + " until " + stringOfExpr(max)
-      case c: Comparison => stringOfExpr(c.lhs) + Printer.getComparisonSeparator(c) + stringOfExpr(c.rhs)
+      case c: Comparison => stringOfExpr(c.lhs) + getComparisonSeparator(c) + stringOfExpr(c.rhs)
       case Not(e) => "!" + stringOfOperand(e)
       case Plus(lhs, rhs) => stringOfOperand(lhs) + " + " + stringOfOperand(rhs)
       case Minus(lhs, rhs) => stringOfOperand(lhs) + " - " + stringOfOperand(rhs)
@@ -62,6 +62,16 @@ protected[graphprog] class Printer(helpers: PartialFunction[String, Value => Str
       case Div(lhs, rhs) => stringOfOperand(lhs) + " / " + stringOfOperand(rhs)
       case LiteralExpr(e) => "LiteralExpr(" + stringOfExpr(e) + ")"
     }
+  }
+  protected def getComparisonSeparator(c: Comparison): String = c match {
+    case EQ(_, _) => " = "
+    case NE(_, _) => " != "
+    case LT(_, _) => " < "
+    case LE(_, _) => " <= "
+    case GT(_, _) => " > "
+    case GE(_, _) => " >= "
+    case And(_, _) => " && "
+    case Or(_, _) => " || "
   }
   private def stringOfBody(b: List[Stmt], indent: String = "") = b match {
     case Nil => " ;"
@@ -108,40 +118,30 @@ protected[graphprog] class Printer(helpers: PartialFunction[String, Value => Str
 
 }
 
-protected[graphprog] object Printer {
+protected[graphprog] class PrettyPrinter(helpers: PartialFunction[String, Value => String], short: Boolean) extends Printer(helpers, short) {
 
-  def prettyStringOfStmt(s: Stmt, printer: Printer): String = {
-    def prettyStringOfPossibilities(ss: List[Stmt]): String = ss.head match {
-	case _: Assign => prettyString(ss.collect{ case Assign(l, _) => l }) + " := " + prettyString(ss.collect{ case Assign(_, r) => r })
-	case c: Comparison => prettyString(ss.collect{ case c: Comparison => c.lhs }) + getComparisonSeparator(c) + prettyString(ss.collect{ case c: Comparison => c.rhs })
-	case Call(n1, a1) if ss.tail.forall{ case Call(n2, a2) => n1 == n2 && a1.size == a2.size case _ => false } => n1 + "(" + iterableToString(ss.collect{ case Call(_, a) => a }.transpose, ", ", (as: List[Expr]) => prettyString(as)) + ")"
-	case _ => prettyString(ss)
-    }
-    def prettyString(es: List[Stmt]): String = {
-      assert(es.nonEmpty)
-      val uniques = es.toSet
-      if (uniques.size == 1)
-	printer.stringOfStmt(uniques.head)
-      else  // TODO: Which of these should I use?
-	"{" + uniques.map{ s => printer.stringOfStmt(s) }.reduceLeft{ (x, y) => if (x.size <= y.size) x else y } + ", " + (uniques.size - 1) + " more}"
-	//"{" + iterableToString(uniques, ", ", (s: Stmt) => printer.stringOfStmt(s)) + "}"
-	//uniques.size + " possibilities"
-    }
-    s match {
-      case PossibilitiesHole(possibilities) if possibilities.nonEmpty => prettyStringOfPossibilities(possibilities)
-      case _ => printer.stringOfStmt(s)
-    }
+  override def stringOfHole(h: Hole) = h match {
+    case PossibilitiesHole(possibilities) if possibilities.nonEmpty => prettyStringOfPossibilities(possibilities)
+    case _ => super.stringOfHole(h)
   }
 
-  private def getComparisonSeparator(c: Comparison): String = c match {
-    case EQ(_, _) => " = "
-    case NE(_, _) => " != "
-    case LT(_, _) => " < "
-    case LE(_, _) => " <= "
-    case GT(_, _) => " > "
-    case GE(_, _) => " >= "
-    case And(_, _) => " && "
-    case Or(_, _) => " || "
+  // TODO: I should probably handle all binary ops the way I handle conditionals.
+  private def prettyStringOfPossibilities(ss: List[Stmt]): String = ss.head match {
+    case _: Assign => prettyString(ss.collect{ case Assign(l, _) => l }) + " := " + prettyString(ss.collect{ case Assign(_, r) => r })
+    case c: Comparison => prettyString(ss.collect{ case c: Comparison => c.lhs }) + ("{" + iterableToString(ss.collect{ case c: Comparison => c }.map(getComparisonSeparator).toSet.map{ (s: String) => s.trim }, ",") + "}") + prettyString(ss.collect{ case c: Comparison => c.rhs })
+    case Call(n1, a1) if ss.tail.forall{ case Call(n2, a2) => n1 == n2 && a1.size == a2.size case _ => false } => n1 + "(" + iterableToString(ss.collect{ case Call(_, a) => a }.transpose, ", ", (as: List[Expr]) => prettyString(as)) + ")"
+    case _ => prettyString(ss)
+  }
+  
+  private def prettyString(es: List[Stmt]): String = {
+    assert(es.nonEmpty)
+    val uniques = es.toSet
+    if (uniques.size == 1)
+      stringOfStmt(uniques.head)
+    else  // TODO: Which of these should I use?
+      "{" + uniques.map{ s => stringOfStmt(s) }.reduceLeft{ (x, y) => if (x.size <= y.size) x else y } + ", " + (uniques.size - 1) + " more}"
+    //"{" + iterableToString(uniques, ", ", (s: Stmt) => stringOfStmt(s)) + "}"
+    //uniques.size + " possibilities"
   }
 
 }
