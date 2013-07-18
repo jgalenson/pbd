@@ -3,13 +3,14 @@ package graphprog.synthesis
 import graphprog.lang.AST._
 import graphprog.lang.{ Executor, Memory, Printer, Typer, CachingExecutor }
 import scala.collection.immutable.{ Map => IMap }
+import scala.collection.mutable.{ Map => MMap, ListBuffer }
 
-protected[synthesis] class CodeGenerator(private val functions: IMap[String, Program], private val shortPrinter: Printer, private val defaultExecutor: Executor, private val typer: Typer) {
+protected[synthesis] class CodeGenerator(private val functions: IMap[String, Program], private val shortPrinter: Printer, private val defaultExecutor: Executor, private val typer: Typer, private val enteredActions: MMap[Stmt, ListBuffer[(List[Action], Memory)]]) {
 
   import graphprog.Utils._
   import graphprog.lang.ASTUtils._
   import scala.annotation.tailrec
-  import scala.collection.mutable.{ HashMap => MHashMap, Map => MMap, ListBuffer, Set => MSet, HashSet => MHashSet }
+  import scala.collection.mutable.{ HashMap => MHashMap, Set => MSet, HashSet => MHashSet }
   import CodeGenerator._
   import SynthesisUtils._
 
@@ -107,29 +108,14 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
 	if (newlyExpanded.contains(expr))
 	  return equivalences(expr)
 	newlyExpanded += expr
-	val curDepth = getDepth(expr)
 	val curEquivalences = equivalences.getOrElseUpdate(expr, MSet.empty[Expr] + expr)
 	curEquivalences ++= { expr match {
 	  case _: Value | Var(_) | ObjectID(_) | ArrayID(_) | LiteralExpr(_) => Nil
 	  case op: BinaryOp =>
 	    { for (l <- expandRec(op.lhs);
-		   if (getDepth(l) < curDepth);
-		   r <- expandRec(op.rhs);
-		   if (getDepth(r) < curDepth))
-	      yield { op match {
-		case EQ(_, _) => EQ(l, r)
-		case NE(_, _) => NE(l, r)
-		case LT(_, _) => LT(l, r)
-		case LE(_, _) => LE(l, r)
-		case GT(_, _) => GT(l, r)
-		case GE(_, _) => GE(l, r)
-		case And(_, _) => And(l, r)
-		case Or(_, _) => Or(l, r)
-		case Plus(_, _) => Plus(l, r)
-		case Minus(_, _) => Minus(l, r)
-		case Times(_, _) => Times(l, r)
-		case Div(_, _) => Div(l, r)
-	      } } }.filter(isUsefulInfix)
+		   r <- expandRec(op.rhs))
+	      yield copyBinaryOp(op, l, r)
+	    }.filter(isUsefulInfix)
 	  case Not(e) =>
 	    for (e <- expandRec(e))
 	      yield Not(e)
@@ -146,10 +132,10 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
 	  case r: Range =>
 	    for (min <- expandRec(r.min);
 		 max <- expandRec(r.max))
-	      yield { r match {
-		case To(_, _) => To(min, max)
-		case Until(_, _) => Until(min, max)
-	      } }
+	      yield copyRange(r, min, max)
+	  case ArrayLength(e) =>
+	    for (e <- expandRec(e))
+	      yield ArrayLength(e)
 	  case Call(name, args) =>
 	    makeCalls(name, args.map(expandRec))
 	  case _ => Nil
@@ -256,14 +242,18 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
       case None => genAllExprs(evidence, maxDepth)
     }
   }
-  private def holeFiller[T <: Stmt](stmt: Stmt, evidence: Iterable[(Action, Memory)], depth: Int, generator: (Iterable[(Action, Memory)], Int) => Iterable[T]): T = {
+  private def holeFiller[T >: Null <: Stmt](stmt: Stmt, evidence: Iterable[(Action, Memory)], depth: Int, generator: (Iterable[(Action, Memory)], Int) => Iterable[T]): T = {
     var possibilities = generator(evidence, depth)
-    possibilitiesToExpr(possibilities, {
-      if (depth < MAX_EXPR_DEPTH)
-	holeFiller(stmt, evidence, depth + 1, generator)
-      else
-	throw new SolverError("Could not fill hole " + shortPrinter.stringOfStmt(stmt) + " at depth " + depth) with FastException
-    })
+    val newStmt = possibilitiesToExpr[T](possibilities, null)
+    newStmt match {
+      case null =>
+	if (depth < MAX_EXPR_DEPTH)
+	  return holeFiller(stmt, evidence, depth + 1, generator)
+	else
+	  throw new SolverError("Could not fill hole " + shortPrinter.stringOfStmt(stmt) + " at depth " + depth) with FastException
+      case _ => enteredActions += (newStmt -> (ListBuffer.empty[(List[Action], Memory)] ++= evidence.map{ case (a, m) => (List(a), m) }))
+    }
+    newStmt
   }
   protected[synthesis] def fillExprHole(expr: Expr, depth: Int = INITIAL_EXPR_DEPTH): Expr = expr match {
     case ExprEvidenceHole(evidence) => holeFiller(expr, evidence, depth, genExpr)
@@ -354,9 +344,10 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
 object CodeGenerator {
 
   // Initial depth to check expressions.
-  private val INITIAL_EXPR_DEPTH = 2
+  protected[synthesis] val INITIAL_EXPR_DEPTH = 2
 
   // Maximum depth to check expressions.
-  private val MAX_EXPR_DEPTH = 2
+  // Note that the user can force use to search a higher depth by asking for it; this only controls what we search initialls.
+  private val MAX_EXPR_DEPTH = 3
 
 }

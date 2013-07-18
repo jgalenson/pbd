@@ -145,6 +145,7 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
     return getCode(None)
   }
   def getFixInfo(): FixInfo = fixInfo.take
+  def hideFixingGui() = invokeLater{ gui.hideFixingGui() }
 
   def setActions(actions: ActionsInfo) = actionsVar put actions
   def setStmtTrace(trace: StmtTraceIntermediateInfo) = stmtTraceVar put trace
@@ -288,6 +289,7 @@ object Controller {
   protected[graphprog] case class EndTrace(sameInput: Boolean, saveChanges: Boolean) extends ActionsInfo with StmtTraceIntermediateInfo with StmtTraceFinalInfo with ExprTraceIntermediateInfo with ExprTraceFinalInfo with FixInfo with ConditionalInfo with JoinInfo with LoopIntermediateInfo with LoopFinalInfo
   protected[graphprog] case class JoinFinderInfo(memory: Memory, joinFinder: List[Action] => Option[List[Stmt]]) extends ConditionalInfo
   protected[graphprog] case class LoopInfo(info: (Memory, Iterate, Loop)) extends LoopFinalInfo
+  protected[graphprog] case object FindMoreExpressions extends ActionsInfo with FixInfo
 
   protected[graphprog] sealed abstract class QueryType
   protected[graphprog] case object Actions extends QueryType

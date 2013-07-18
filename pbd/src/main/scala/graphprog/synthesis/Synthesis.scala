@@ -29,16 +29,17 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
   private val defaultExecutor = new Executor(functions, longPrinter)
   private val typer = new Typer(functions, objectTypes)
   
-  private val codeGenerator = new CodeGenerator(functions, shortPrinter, defaultExecutor, typer)
-
   private var allInputs = List.empty[List[(String, Value)]]  // TODO: This should be a val ListBuffer, but with that when I load backed-up data, I can't add to this.
   private val finishedInputs = ListBuffer.empty[List[(String, Value)]]
   private val origHoles = Map.empty[Stmt, PossibilitiesHole]
-  private val enteredActions = Map.empty[PossibilitiesHole, ListBuffer[(Memory, List[Action])]]
+  private val enteredActions = Map.empty[Stmt, ListBuffer[(List[Action], Memory)]]
+  private val lastSearchDepth = Map.empty[Stmt, Int]
   //private val conditionEvidence = Map.empty[UnseenExpr, List[(Value, Memory)]]
   private var breakpoints = List.empty[Breakpoint]
   private var breakpointsToAdd = List.empty[Breakpoint]
   private var breakpointsToRemove = List.empty[Stmt]
+
+  private val codeGenerator = new CodeGenerator(functions, shortPrinter, defaultExecutor, typer, enteredActions)
 
   private var numUnseensFilled = 0
   private var numDisambiguations = 0
@@ -402,6 +403,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
   private case class PruneCode(curStmts: List[Stmt]) extends RuntimeException with FastException
   private case class FixedCode(curStmt: Option[Stmt], newCode: CodeInfo) extends RuntimeException with FastException
   private case class SkipTrace(info: EndTrace, newStmts: IMap[Stmt, Stmt], newBlocks: IMap[Stmt, List[Stmt]]) extends RuntimeException with FastException
+  private case class FoundMoreExpressions(curStmt: Stmt) extends RuntimeException with FastException
   // TODO: Remove asInstanceOfs
   // We might have isFixing == true and failingStmt == None, for instance when there is no correct path on an input but we don't crash on a single statement (from long pruning).
   private def executeWithHelpFromUser(memory: Memory, origStmts: List[Stmt], pruneAfterUnseen: Boolean, amFixing: Boolean, failingStmt: Option[Stmt], otherBranch: Option[(Stmt, UnknownJoinIf)] = None): (List[Action], List[Stmt], Memory) = {
@@ -418,7 +420,8 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
       controller.updateDisplay(memory, displayCode, curStmt, layoutObjs, actualBreakpoints, failingStmt)
     }
     var continue = false  // Whether the user has selected to continue.
-    def doFixStep(memory: Memory, curStmt: Option[Stmt], newStmts: IMap[Stmt, Stmt], newBlocks: IMap[Stmt, List[Stmt]], diffInfo: Option[(Memory, Stmt, Value)]) {
+    var foundMoreExpressions = false
+    def doFixStep(memory: Memory, curStmt: Option[Stmt], newStmts: IMap[Stmt, Stmt], newBlocks: IMap[Stmt, List[Stmt]], diffInfo: Option[(Memory, Stmt, Value)]): Boolean = {
       assert(amFixing)
       (diffInfo, continue) match {
 	case (Some(_), true) => // The user pressed continue and there's only one possibility, so execute it.
@@ -431,8 +434,10 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	    case c: CodeInfo => throw new FixedCode(curStmt, c)
 	    case EndConditional => throw new RuntimeException
 	    case e: EndTrace => throw new SkipTrace(e, newStmts, newBlocks)
+	    case FindMoreExpressions => return true
 	  }
       }
+      false
     }
     var pruneBeforeNextDisambiguation = false
     def executeWithHelpFromUserHelper(memory: Memory, stmts: List[Stmt], newStmts: IMap[Stmt, Stmt], newBlocks: IMap[Stmt, List[Stmt]], indent: String, printFn: String => Unit = print): ((Memory, List[Action], IMap[Stmt, Stmt], IMap[Stmt, List[Stmt]]), Boolean) = {
@@ -485,7 +490,35 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	  val actualCurStmt = newStmts.getOrElse(curStmt, curStmt)
 	  //println("Executing " + shortPrinter.stringOfStmt(actualCurStmt))
 	  def updateDisplayShort(layoutObjs: Boolean = true) = updateDisplay(memory, Some(actualCurStmt), newStmts, newBlocks, layoutObjs)
-	  def doFixStepShort(diffInfo: Option[(Memory, Stmt, Value)]) = doFixStep(memory, Some(actualCurStmt), newStmts, newBlocks, diffInfo)
+	  def doFixStepShort(diffInfo: Option[(Memory, Stmt, Value)]) {
+	    if (doFixStep(memory, Some(actualCurStmt), newStmts, newBlocks, diffInfo)) {
+	      val newHole = findMoreExpressions()
+	      controller.hideFixingGui()  // We might have had the step GUI but need to show possibilities GUI, so this clears the old stuff.
+	      origHoles.getOrElse(curStmt, curStmt) match {
+		case origHole: PossibilitiesHole =>
+		  origHoles -= curStmt
+		  origHoles += (newHole -> origHole)
+		case _ =>
+	      }
+	      throw new FoundMoreExpressions(newHole)
+	    }
+	  }
+	  // Do a new search for the current statement at a depth one larger than before.
+	  def findMoreExpressions(): PossibilitiesHole = {
+	    val origStmt = origHoles.getOrElse(curStmt, curStmt)
+	    val lastDepth = lastSearchDepth.getOrElse(origStmt, CodeGenerator.INITIAL_EXPR_DEPTH)
+	    enteredActions.get(origStmt) match {  // Get all the actions/memories the user has given us for this statement.
+	      case Some(enteredActions) => codeGenerator.fillHoles(List(StmtEvidenceHole(enteredActions.flatMap{ case (as, m) => as.map{ (_, m) } }.toList)), false, lastDepth + 1) match {
+		case List(newHole: PossibilitiesHole) =>
+		  println(indent + "Went from " + shortPrinter.stringOfStmt(curStmt) + " to " + shortPrinter.stringOfStmt(newHole))
+		  lastSearchDepth += (origStmt -> (lastDepth + 1))
+		  foundMoreExpressions = true
+		  newHole
+		case _ => throw new RuntimeException
+	      }
+	      case None => throw new RuntimeException
+	    }
+	  }
 	  // Handle breakpoints
 	  breakpointsToAdd foreach { breakpoint => {
 	    val origStmts = newStmts.collect{ case (k, v) if v eq breakpoint.line => k }.toList
@@ -521,17 +554,18 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	    case _ =>
 	  }
 	  // Handle the actual statement
-	  (actualCurStmt: @unchecked) match {
+	  def handleStmt(actualCurStmt: Stmt): ((Memory, List[Action], IMap[Stmt, Stmt], IMap[Stmt, List[Stmt]]), Boolean) = (actualCurStmt: @unchecked) match {
 	    case curHole @ PossibilitiesHole(possibilities) =>
-	      def updateHoleMaps(newStmt: Stmt, actions: List[Action], userEntered: Boolean) {
-		val origHole = origHoles.getOrElse(curStmt, curStmt).asInstanceOf[PossibilitiesHole]
-		if (userEntered)
-		  enteredActions.getOrElseUpdate(origHole, ListBuffer.empty) += ((memory, actions))
-		if (newStmt != curStmt) {
-		  assert(actualCurStmt == curStmt || (origHoles.contains(actualCurStmt) && !origHoles.contains(curStmt)), actualCurStmt + "  " + curStmt + "  " + origHoles)
-		  origHoles -= actualCurStmt
-		  origHoles += (newStmt -> origHole)
-		}
+	      def updateHoleMaps(newStmt: Stmt, actions: List[Action], userEntered: Boolean) = origHoles.getOrElse(curStmt, curStmt) match {
+		case origHole: PossibilitiesHole => 
+		  if (userEntered)
+		    enteredActions.getOrElseUpdate(origHole, ListBuffer.empty) += ((actions, memory))
+		  if (newStmt != curStmt) {
+		    assert(actualCurStmt == curStmt || (origHoles.contains(actualCurStmt) && !origHoles.contains(curStmt)), actualCurStmt + "  " + curStmt + "  " + origHoles)
+		    origHoles -= actualCurStmt
+		    origHoles += (newStmt -> origHole)
+		  }
+		case _ =>
 	      }
 	      // Filter out things that are illegal and cause errors
 	      val newPossibilities = possibilities filter { p => try { val v = defaultExecutor.evaluate(memory, p); !isErrorOrFailure(v) } catch { case _ => false } }
@@ -610,13 +644,13 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 		  }
 		}*/
 		// Gets the current action from the user via the GUI.
-		def getActionGUI(): (List[Action], Value, Memory) = {
+		def getActionGUI(newPossibilities: List[Stmt]): (List[Stmt], List[Action], Value, Memory) = {
 		  val actions = controller.getActions(newPossibilities.asInstanceOf[List[Action]], amFixing)
 		  (actions: @unchecked) match {
 		    case Actions(actions) => 
 		      val (result, newMem) = defaultExecutor.execute(memory, actions.head)
 		      println(indent + shortPrinter.stringOfValue(result))
-		      (actions, result, newMem)  // We return actions for the action and not actions.head because actions.head could be wrong (e.g. could be x < y when we want a < b, and this would give us wrong values).
+		      (newPossibilities, actions, result, newMem)  // We return actions for the action and not actions.head because actions.head could be wrong (e.g. could be x < y when we want a < b, and this would give us wrong values).
 		    case Fix if amFixing => controller.getFixInfo() match {
 		      case code: CodeInfo => throw new FixedCode(Some(actualCurStmt), code)
 		      case e: EndTrace => throw new SkipTrace(e, newStmts, newBlocks)
@@ -624,12 +658,16 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 		    }
 		    case Fix if !amFixing => throw new FixCode("you asked to change it", None)
 		    case e: EndTrace => throw new SkipTrace(e, newStmts, newBlocks)
+		    case FindMoreExpressions =>  // The user asked us to increase the search depth.
+		      val newStmt = findMoreExpressions()
+		      updateDisplay(memory, Some(newStmt), newStmts + (curStmt -> newStmt), newBlocks, false)
+		      getActionGUI(newStmt.possibilities.asInstanceOf[List[Action]])
 		  }
 		}
 		//val (actions, curResult, newMemory) = getActionText(true)
-		val (actions, curResult, newMemory) = getActionGUI()
+		val (newerPossibilities, actions, curResult, newMemory) = getActionGUI(newPossibilities)
 		// Filter out possibilities ruled illegal by this new action (which will reduce the possibilities in the next iteration).
-		val newStmt = possibilitiesToStmt(curHole, newPossibilities filter { p => yieldEquivalentResults(memory, p, curResult, newMemory, defaultExecutor) })
+		val newStmt = possibilitiesToStmt(curHole, newerPossibilities filter { p => yieldEquivalentResults(memory, p, curResult, newMemory, defaultExecutor) })
 		//println("Changed " + shortPrinter.stringOfStmt(curStmt) + " to " + shortPrinter.stringOfStmt(newStmt))
 		numDisambiguations += 1
 		updateHoleMaps(newStmt, actions, true)
@@ -748,11 +786,18 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	      val newerBlocks = result.map{ _._4 }.foldLeft(newBlocks){ (acc, cur) => cur.foldLeft(acc){ (acc, kv) => if (!acc.contains(kv._1) || newBlocks(kv._1) != kv._2) acc + kv else acc } }
 	      ((newMemory, trace :+ actionStmt, newerStmts, newerBlocks), false)
 	  }
+	  // TODO: I should get rid of this method and just put the try/catch around all of handleStmt itself.
+	  def doHandleStmt(actualCurStmt: Stmt): ((Memory, List[Action], IMap[Stmt, Stmt], IMap[Stmt, List[Stmt]]), Boolean) = try {
+	    handleStmt(actualCurStmt)
+	  } catch {
+	    case FoundMoreExpressions(newStmt) => doHandleStmt(newStmt)
+	  }
+	  doHandleStmt(actualCurStmt)
 	}
       }}
     }
     val (finalMem, actions, newStmts, newBlocks) = executeWithHelpFromUserHelper(memory, origStmts, IMap.empty, IMap.empty, "")._1
-    if (amFixing)
+    if (amFixing && !foundMoreExpressions)
       doFixStep(finalMem, None, newStmts, newBlocks, None)
     (actions, getNewStmts(origStmts, newStmts, newBlocks), finalMem)
   }
@@ -1322,7 +1367,9 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
       finishedInputs foreach { i => executeProgram(executor, i, codeWithUnseen) }
       val newCondition = possibilitiesToStmt(curHole, evidence.foldLeft(possibilities){ case (curPossibilities, (v, m)) => curPossibilities filter { p => yieldEquivalentResults(m, p, v, defaultExecutor) } }).asInstanceOf[Expr]
       newCondition match {
-	case p: PossibilitiesHole => origHoles += p -> p
+	case p: PossibilitiesHole =>
+	  origHoles += p -> p
+	  enteredActions += (p -> evidence.map{ case (v, m) => (List(v), m) })
 	case _ =>
       }
       newCondition
@@ -1331,7 +1378,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 
   protected[graphprog] def resetPruning(code: List[Stmt]): List[Stmt] = {
     // Fix pruning.  For anything that was a hole at the beginning, replace it with that original hole and then re-run all entered user actions to remove possibilities.  This has the effect of undoing pruning and then removing anything we would have removed through user interaction.
-    val holeMap = origHoles.map{ case (curStmt, origHole) => curStmt -> possibilitiesToStmt(origHole, enteredActions.getOrElse(origHole, ListBuffer.empty[(Memory, List[Action])]).foldLeft(origHole.possibilities){ case (acc, (mem, actions)) => acc filter { p => actions exists { a => yieldEquivalentResults(mem, p, a, defaultExecutor) } } }) }.toMap
+    val holeMap = origHoles.map{ case (curStmt, origHole) => curStmt -> possibilitiesToStmt(origHole, enteredActions.getOrElse(origHole, ListBuffer.empty[(List[Action], Memory)]).foldLeft(origHole.possibilities){ case (acc, (actions, mem)) => acc filter { p => actions exists { a => yieldEquivalentResults(mem, p, a, defaultExecutor) } } }) }.toMap
     holeMap foreach { case (curStmt, newStmt) => { val prevHole = origHoles.remove(curStmt).get; if (newStmt match { case PossibilitiesHole(p) => p.size != prevHole.possibilities.size case _ => true }) origHoles += (newStmt -> prevHole) } }
     getNewStmts(code, holeMap, IMap.empty)
   }

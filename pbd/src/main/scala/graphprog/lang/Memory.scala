@@ -29,19 +29,6 @@ class Memory(val mem: Stack[MMap[String, Value]]) extends Serializable {
     mem.clear
     cloneHelper(other.mem, mem)
   }
-  private def cloneHelper(oldMemory: Stack[MMap[String, Value]], newMemory: Stack[MMap[String, Value]]): Stack[MMap[String, Value]] = {
-    val (objects, arrays) = getObjectsAndArraysHelper(oldMemory)
-    val clonedObjects = MHashMap.empty ++ (objects mapValues { o => Object(o.id, o.typ, new MHashMap[String, Value]) })  // Note that this needs to be a mutable map not an immutable map or updates to its fields do not stick
-    val clonedArrays = MHashMap.empty ++ (arrays mapValues { a => IntArray(a.id, a.array.clone) })
-    def myclone(v: Value): Value = v match {
-      case IntArray(id, _) => clonedArrays(id)
-      case Object(id, _, _) => clonedObjects(id)
-      case _ => v
-    }
-    clonedObjects.values foreach { clone => clone.fields ++= objects(clone.id).fields.map { t => (t._1 -> myclone(t._2)) } }
-    oldMemory.reverse.foreach { m => newMemory push (MMap.empty ++ m.mapValues(myclone)) }
-    newMemory
-  }
   def getObjectsAndArrays(): (MMap[Int, Object], MMap[Int, IntArray]) = getObjectsAndArraysHelper(mem)
   
   def getObject(id: Int): Option[Object] = getObjectsAndArraysHelper(mem)._1.get(id)  // TODO-optimization: We could speed this (and getArray) up by not calling getObjectsAndArrays() and constructing the whole maps.
@@ -58,6 +45,20 @@ class Memory(val mem: Stack[MMap[String, Value]]) extends Serializable {
 }
 
 object Memory {
+
+  private def cloneHelper(oldMemory: Stack[MMap[String, Value]], newMemory: Stack[MMap[String, Value]]): Stack[MMap[String, Value]] = {
+    val (objects, arrays) = getObjectsAndArraysHelper(oldMemory)
+    val clonedObjects = MHashMap.empty ++ (objects mapValues { o => Object(o.id, o.typ, new MHashMap[String, Value]) })  // Note that this needs to be a mutable map not an immutable map or updates to its fields do not stick
+    val clonedArrays = MHashMap.empty ++ (arrays mapValues { a => IntArray(a.id, a.array.clone) })
+    def myclone(v: Value): Value = v match {
+      case IntArray(id, _) => clonedArrays(id)
+      case Object(id, _, _) => clonedObjects(id)
+      case _ => v
+    }
+    clonedObjects.values foreach { clone => clone.fields ++= objects(clone.id).fields.map { t => (t._1 -> myclone(t._2)) } }
+    oldMemory.reverse.foreach { m => newMemory push (MMap.empty ++ m.mapValues(myclone)) }
+    newMemory
+  }
 
   private def getObjectsAndArraysHelper(mem: Stack[MMap[String, Value]]): (MMap[Int, Object], MMap[Int, IntArray]) = {
     val objects = new MHashMap[Int, Object]

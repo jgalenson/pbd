@@ -121,6 +121,8 @@ private class Menu(private val synthesisGUI: SynthesisGUI, private val controls:
 
     setupControl(insertConditionalFromHole, hole, _ => synthesisGUI.insertConditionalAtPoint(), KeyEvent.VK_I)
 
+    setupControl(new JMenuItem("Find more expressions"), hole, _ => synthesisGUI.findMoreExpressions(), KeyEvent.VK_F)
+
     setupControl(new JMenuItem("Skip trace"), hole, _ => skipTrace(synthesisGUI, Actions), KeyEvent.VK_S)
 
     hole.setEnabled(false)
@@ -137,6 +139,8 @@ private class Menu(private val synthesisGUI: SynthesisGUI, private val controls:
     setupControl(insertConditional, fixProgram, _ => synthesisGUI.insertConditionalAtPoint(), KeyEvent.VK_I)
 
     setupControl(endConditionalWhenFixing, fixProgram, _ => synthesisGUI.endConditional(), KeyEvent.VK_E)
+
+    setupControl(new JMenuItem("Find more expressions"), fixProgram, _ => synthesisGUI.findMoreExpressions(), KeyEvent.VK_F)
 
     setupControl(new JMenuItem("Skip trace"), fixProgram, _ => skipTrace(synthesisGUI, if (hole.isEnabled) Actions else FixType), KeyEvent.VK_S)  // When encountering a hole when fixing, both menus are available, but we are waiting for an action to be chosen.
 

@@ -190,7 +190,7 @@ class SynthesisGUI private (private val controller: Controller, private val help
     hideFixingGui()
     controller.setFixInfo(EndConditional)
   }
-  private def hideFixingGui() {
+  def hideFixingGui() {
     canvas.hideMemoryDiff()
     controls.hideFixingControls()
   }
@@ -222,6 +222,8 @@ class SynthesisGUI private (private val controller: Controller, private val help
     }
     controller.skipTrace(queryType, sameInput, saveChanges)
   }
+
+  protected[gui] def findMoreExpressions() = if (canvas.isQueryMode()) controller.setActions(FindMoreExpressions) else controller.setFixInfo(FindMoreExpressions)
 
   protected[gui] def addBreakpoint(breakpoint: Breakpoint) = controller.addBreakpoint(breakpoint)
 

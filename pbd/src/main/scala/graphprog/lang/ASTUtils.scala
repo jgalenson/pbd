@@ -453,4 +453,24 @@ object ASTUtils {
     case None => s
   }
 
+  protected[graphprog] def copyBinaryOp(op: BinaryOp, newLeft: Expr, newRight: Expr): BinaryOp = op match {
+    case EQ(_, _) => EQ(newLeft, newRight)
+    case NE(_, _) => NE(newLeft, newRight)
+    case LT(_, _) => LT(newLeft, newRight)
+    case LE(_, _) => LE(newLeft, newRight)
+    case GT(_, _) => GT(newLeft, newRight)
+    case GE(_, _) => GE(newLeft, newRight)
+    case And(_, _) => And(newLeft, newRight)
+    case Or(_, _) => Or(newLeft, newRight)
+    case Plus(_, _) => Plus(newLeft, newRight)
+    case Minus(_, _) => Minus(newLeft, newRight)
+    case Times(_, _) => Times(newLeft, newRight)
+    case Div(_, _) => Div(newLeft, newRight)
+  }
+
+  protected[graphprog] def copyRange(r: Range, newMin: Expr, newMax: Expr): Range = r match {
+    case To(_, _) => To(newMin, newMax)
+    case Until(_, _) => Until(newMin, newMax)
+  }
+
 }
