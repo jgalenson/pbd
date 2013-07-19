@@ -508,7 +508,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	    val origStmt = origHoles.getOrElse(curStmt, curStmt)
 	    val lastDepth = lastSearchDepth.getOrElse(origStmt, CodeGenerator.INITIAL_EXPR_DEPTH)
 	    enteredActions.get(origStmt) match {  // Get all the actions/memories the user has given us for this statement.
-	      case Some(enteredActions) => codeGenerator.fillHoles(List(StmtEvidenceHole(enteredActions.flatMap{ case (as, m) => as.map{ (_, m) } }.toList)), false, lastDepth + 1) match {
+	      case Some(enteredActions) => codeGenerator.fillHoles(List(StmtEvidenceHole(enteredActions.flatMap{ case (as, m) => as.map{ (_, m) } }.toList)), false, Some(memory), lastDepth + 1) match {
 		case List(newHole: PossibilitiesHole) =>
 		  println(indent + "Went from " + shortPrinter.stringOfStmt(curStmt) + " to " + shortPrinter.stringOfStmt(newHole))
 		  lastSearchDepth += (origStmt -> (lastDepth + 1))

@@ -1058,7 +1058,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
       case IntArrayAccess(array, index) => IntArrayAccess(executor.evaluate(mem, array), executor.evaluate(mem, index))
       case FieldAccess(obj, field) =>
 	val o = executor.evaluate(mem, obj)
-	assert(o.isInstanceOf[Object])
+	assert(o.isInstanceOf[Object], e.toString + ", " + o.toString + ": " + o.getClass.getName)
 	FieldAccess(o, field)
       case ArrayLength(e) => ArrayLength(executor.evaluate(mem, e))
       case v: ASTVar => v

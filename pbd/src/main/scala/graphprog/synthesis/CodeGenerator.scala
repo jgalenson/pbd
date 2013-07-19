@@ -15,7 +15,7 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
   import SynthesisUtils._
 
   // TODO-cleanup: Ugly.
-  protected[graphprog] def genAllExprs(evidence: Iterable[(Action, Memory)], maxDepth: Int, checker: Option[(Expr, Action, Memory) => Boolean] = None): Iterable[Expr] = {
+  protected[graphprog] def genAllExprs(evidence: Iterable[(Action, Memory)], maxDepth: Int, curMemory: Option[Memory], checker: Option[(Expr, Action, Memory) => Boolean] = None): Iterable[Expr] = {
     if (evidence.head._1.isInstanceOf[LiteralExpr]) {  // TODO: This should probably be in fillHoles once I have it recursing on itself for +,<,etc.
       assert(holdsOverIterable(evidence, (x: (Action, Memory), y: (Action, Memory)) => x._1 == y._1))
       return List(evidence.head._1.asInstanceOf[LiteralExpr].e)
@@ -32,6 +32,7 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
       }
       def exprHasType(e: Expr, t: Type, memory: Memory): Boolean = canBeSameType(typer.typeOfExpr(e, memory), t)
       val equivalences = MHashMap.empty[Memory, MHashMap[Result, ListBuffer[Expr]]]
+      val crashingExprs = MHashMap.empty[Expr, Boolean]
       def getResult(e: Expr, memory: Memory, result: (Value, Memory)): Result = if (e.isInstanceOf[Call] && result._2 != memory) SideEffect((memory, result._2), result._1) else result._1
       def pairs(l1: Iterable[Expr], l2: Iterable[Expr], memory: Memory): Iterable[(Expr, Expr)] = for (e1 <- l1; e2 <- l2; e2b = if (e1 != e2) e2 else equivalences(memory)(getResult(e2, memory, cachingExecutor.execute(memory, e2))).find{ _ != e1 }.getOrElse{ e2 }; reorder = e1 == e2 && shortPrinter.stringOfExpr(e1) > shortPrinter.stringOfExpr(e2b)) yield if (!reorder) (e1, e2b) else (e2b, e1)
       def getRepresentatives(memory: Memory): Iterable[Expr] = equivalences.getOrElse(memory, MMap.empty).values.map{ _.head }
@@ -72,9 +73,12 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
 	  }}
 	  val possibilities = constants ++ curVariables ++ binaryOps ++ calls ++ extras
 	  //println("Depth " + depth + "/" + maxDepth + " poss: " + iterableToString(possibilities, ", ", (e: Expr) => shortPrinter.stringOfExpr(e)))
-	  possibilities.filter{ e => getDepth(e) == depth }.foreach{ e => cachingExecutor.execute(memory, e) match {
-	    case result @ (value, newMem) if !isErrorOrFailure(value) => addExpr(memory, e, getResult(e, memory, result))
-	    case _ => 
+	  possibilities.filter{ e => getDepth(e) == depth }.filter{ e => !crashingExprs.contains(e) }.foreach{ e => {
+	    val result = cachingExecutor.execute(memory, e)
+	    if (isErrorOrFailure(result._1))
+	      crashingExprs += (e -> true)
+	    else if (!curMemory.exists{ curMemory => crashingExprs.getOrElseUpdate(e, isErrorOrFailure(cachingExecutor.evaluate(curMemory, e))) })
+	      addExpr(memory, e, getResult(e, memory, result))
 	  } }
 	  //println("Equivalences: " + iterableToString(equivalences(memory), ", ", (kv: (Result, ListBuffer[Expr])) => { kv._1 match { case v: Value => soe(v) case SideEffect(ms, v) => kv._1.toString } } + " -> {" + iterableToString(kv._2, ", ", (e: Expr) => soe(e)) + "}"))
 	} }
@@ -199,7 +203,7 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
 	exprs filter { e => evidence forall { case (a, m) => checker.get(e, a, m) } }
     //println("Valid exprs: {" + iterableToString(validExprs, ", ", (e: Expr) => soe(e)) + "}")
     val allExprs = expandEquivalences(validExprs, equivalences).filter{ e => getDepth(e) <= maxDepth }.filter(hasCorrectForm(evidence.map{ _._1 }))
-    //println("Final exprs: {" + iterableToString(allExprs, ", ", (e: Expr) => soe(e)) + "}")
+    //println("Final exprs: {" + iterableToString(allExprs, ", ", (e: Expr) => shortPrinter.stringOfExpr(e)) + "}")
     allExprs
   }
 
@@ -217,11 +221,11 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
       goodExprs
   }
 
-  private def genExpr(evidence: Iterable[(Action, Memory)], maxDepth: Int): Iterable[Expr] = {
+  private def genExpr(evidence: Iterable[(Action, Memory)], maxDepth: Int, curMemory: Option[Memory]): Iterable[Expr] = {
     def binaryOpHelper(constructor: (Expr, Expr) => Expr, isCommutative: Boolean): Iterable[Expr] = {
       val x = evidence.collect{ case (b: BinaryOp, m) => ((b.lhs, m), (b.rhs, m)) }.unzip
-      val leftExprs = genExpr(x._1, maxDepth)
-      val rightExprs = genExpr(x._2, maxDepth)
+      val leftExprs = genExpr(x._1, maxDepth, curMemory)
+      val rightExprs = genExpr(x._2, maxDepth, curMemory)
       val choices = for (l <- leftExprs; r <- rightExprs if l != r) yield constructor(l, r)
       val unaryEvidence = evidence filter { _._1.isInstanceOf[BooleanConstant] }
       val finalChoices = getValidChoices(choices, unaryEvidence)
@@ -239,56 +243,56 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
       case Some(GE(_, _)) => binaryOpHelper(GE(_, _), false)
       case Some(And(_, _)) => binaryOpHelper(And(_, _), true)
       case Some(Or(_, _)) => binaryOpHelper(Or(_, _), true)
-      case None => genAllExprs(evidence, maxDepth)
+      case None => genAllExprs(evidence, maxDepth, curMemory)
     }
   }
-  private def holeFiller[T >: Null <: Stmt](stmt: Stmt, evidence: Iterable[(Action, Memory)], depth: Int, generator: (Iterable[(Action, Memory)], Int) => Iterable[T]): T = {
-    var possibilities = generator(evidence, depth)
+  private def holeFiller[T >: Null <: Stmt](stmt: Stmt, evidence: Iterable[(Action, Memory)], depth: Int, curMemory: Option[Memory], generator: (Iterable[(Action, Memory)], Int, Option[Memory]) => Iterable[T]): T = {
+    var possibilities = generator(evidence, depth, curMemory)
     val newStmt = possibilitiesToExpr[T](possibilities, null)
     newStmt match {
       case null =>
 	if (depth < MAX_EXPR_DEPTH)
-	  return holeFiller(stmt, evidence, depth + 1, generator)
+	  return holeFiller(stmt, evidence, depth + 1, curMemory, generator)
 	else
 	  throw new SolverError("Could not fill hole " + shortPrinter.stringOfStmt(stmt) + " at depth " + depth) with FastException
       case _ => enteredActions += (newStmt -> (ListBuffer.empty[(List[Action], Memory)] ++= evidence.map{ case (a, m) => (List(a), m) }))
     }
     newStmt
   }
-  protected[synthesis] def fillExprHole(expr: Expr, depth: Int = INITIAL_EXPR_DEPTH): Expr = expr match {
-    case ExprEvidenceHole(evidence) => holeFiller(expr, evidence, depth, genExpr)
+  protected[synthesis] def fillExprHole(expr: Expr, depth: Int = INITIAL_EXPR_DEPTH, curMemory: Option[Memory] = None): Expr = expr match {
+    case ExprEvidenceHole(evidence) => holeFiller(expr, evidence, depth, curMemory, genExpr)
     case _ => expr
   }
-  protected[synthesis] def fillHoles(stmts: List[Stmt], isPartialTrace: Boolean, depth: Int = INITIAL_EXPR_DEPTH): List[Stmt] = {
-    def genStmt(evidence: Iterable[(Action, Memory)], maxDepth: Int): Iterable[Stmt] = evidence.head._1 match {
-      case _: Expr => genExpr(evidence, maxDepth)
+  protected[synthesis] def fillHoles(stmts: List[Stmt], isPartialTrace: Boolean, curMemory: Option[Memory] = None, depth: Int = INITIAL_EXPR_DEPTH): List[Stmt] = {
+    def genStmt(evidence: Iterable[(Action, Memory)], maxDepth: Int, curMemory: Option[Memory]): Iterable[Stmt] = evidence.head._1 match {
+      case _: Expr => genExpr(evidence, maxDepth, curMemory)
       case Assign(l, _) =>
 	val assignEvidence = evidence map { case (a: Assign, m) => (a, m) case s => throw new IllegalArgumentException("Unexpected stmt: " + s) }
 	if (holdsOverIterable(assignEvidence map { case (Assign(l, _), _) => l }, ((x: LVal, y: LVal) => x == y)) && (l match { case FieldAccess(ObjectID(_), _) | IntArrayAccess(ArrayID(_), _) => false case _ => true })) {  // TODO: I should really check l thoroughly, not just at the first level like this.
 	  val exprEvidence = assignEvidence map { case (Assign(_, r), m) => (r, m) }
-	  val allExprs = genExpr(exprEvidence, maxDepth) filter { _ != l }
+	  val allExprs = genExpr(exprEvidence, maxDepth, curMemory) filter { _ != l }
 	  allExprs map { Assign(l, _) }
 	} else {
 	  assert(holdsOverIterable(assignEvidence map { _._1 }, (x: Action, y: Action) => (x, y) match { case (FieldAccess(_, f1), FieldAccess(_, f2)) => f1 == f2 case _ => true }))
 	  val leftEvidence = assignEvidence map { case (Assign(FieldAccess(l, _), _), m) => (l, m) case (Assign(l, _), m) => (l, m) }
-	  val leftExprs = genExpr(leftEvidence, maxDepth) collect { case l: LVal => l }
+	  val leftExprs = genExpr(leftEvidence, maxDepth, curMemory) collect { case l: LVal => l }
 	  val rightEvidence = assignEvidence map { case (Assign(_, r), m) => (r, m) }
-	  val rightExprs = genExpr(rightEvidence, maxDepth)
+	  val rightExprs = genExpr(rightEvidence, maxDepth, curMemory)
 	  val field = assignEvidence.head._1 match { case Assign(FieldAccess(_, f), _) => Some(f) case _ => None }
 	  for (l <- leftExprs; r <- rightExprs if l != r) yield field match { case Some(f) => Assign(FieldAccess(l, f), r) case None => Assign(l, r) }
 	}
       case _ => throw new IllegalArgumentException(evidence.head._1.toString)
     }
-    def genLoopCondition(evidence: Iterable[(Action, Memory)], depth: Int): Iterable[Stmt] = {
+    def genLoopCondition(evidence: Iterable[(Action, Memory)], depth: Int, curMemory: Option[Memory]): Iterable[Stmt] = {
       def handleForLoop(v: Var, evidence: Iterable[(Action, Memory)]): Iterable[Stmt] = {
 	val name = v.name
 	val assigns = evidence flatMap { case (Assign(_, r), m) => List((r, m)) case (i @ In(Var(n), r), m) => val res = defaultExecutor.execute(m, i); if (res._1.isInstanceOf[BooleanConstant]) Nil else if (m.contains(n)) List((IntConstant(m(n).asInstanceOf[IntConstant].n + 1), m)) else if (res._2 contains name) List((r.min, m)) else Nil case (Break, _) => Nil case e => throw new IllegalArgumentException(e.toString) }
 	val exprs = {
 	  def minChecker(e: Expr, a: Action, m: Memory): Boolean = defaultExecutor.evaluateBoolean(m, if (m contains name) LT(e, a.asInstanceOf[Expr]) else EQ(e, a.asInstanceOf[Expr]))
-	  val mins = genAllExprs(assigns, depth, Some(minChecker))
+	  val mins = genAllExprs(assigns, depth, curMemory, Some(minChecker))
 	  def maxChecker(isInclusive: Boolean)(e: Expr, a: Action, m: Memory): Boolean = defaultExecutor.evaluateBoolean(m, if (isInclusive) GE(e, a.asInstanceOf[Expr]) else GT(e, a.asInstanceOf[Expr]))
-	  val inMaxs = genAllExprs(assigns, depth, Some(maxChecker(true)))
-	  val exMaxs = genAllExprs(assigns, depth, Some(maxChecker(false)))
+	  val inMaxs = genAllExprs(assigns, depth, curMemory, Some(maxChecker(true)))
+	  val exMaxs = genAllExprs(assigns, depth, curMemory, Some(maxChecker(false)))
 	  (for (min <- mins; max <- inMaxs) yield To(min, max)) ++ (for (min <- mins; max <- exMaxs) yield Until(min, max))
 	}
 	val iterationCheckMemories = {
@@ -325,15 +329,15 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
       (evidence.head._1: @unchecked) match {
 	case Assign(v: Var, _) => handleForLoop(v, evidence)
 	case In(v: Var, _) => handleForLoop(v, evidence)
-	case _: Expr => genExpr(evidence, depth)
+	case _: Expr => genExpr(evidence, depth, curMemory)
       }
     }
     def fillStmtHole(stmt: Stmt, depth: Int, isLoopCondition: Boolean): Stmt = stmt match {
-      case e: Expr => fillExprHole(e, depth)
-      case StmtEvidenceHole(evidence) => holeFiller(stmt, evidence, depth, if (isLoopCondition) genLoopCondition else genStmt)
-      case If(c, t, ei, e) => If(fillExprHole(c, depth), fillHoles(t, isPartialTrace, depth), ei map { b => (b._1, fillHoles(b._2, isPartialTrace, depth)) }, fillHoles(e, isPartialTrace, depth))
-      case Loop(condition, body) => Loop(fillStmtHole(condition, depth, true), fillHoles(body, isPartialTrace, depth))
-      case UnorderedStmts(s) => UnorderedStmts(fillHoles(s, isPartialTrace, depth))
+      case e: Expr => fillExprHole(e, depth, curMemory)
+      case StmtEvidenceHole(evidence) => holeFiller(stmt, evidence, depth, curMemory, if (isLoopCondition) genLoopCondition else genStmt)
+      case If(c, t, ei, e) => If(fillExprHole(c, depth, curMemory), fillHoles(t, isPartialTrace, curMemory, depth), ei map { b => (b._1, fillHoles(b._2, isPartialTrace, curMemory, depth)) }, fillHoles(e, isPartialTrace, curMemory, depth))
+      case Loop(condition, body) => Loop(fillStmtHole(condition, depth, true), fillHoles(body, isPartialTrace, curMemory, depth))
+      case UnorderedStmts(s) => UnorderedStmts(fillHoles(s, isPartialTrace, curMemory, depth))
       case _ => stmt
     }
     stmts map { s => fillStmtHole(s, depth, false) }
