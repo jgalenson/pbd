@@ -3,6 +3,7 @@ package graphprog.test
 protected[test] object TestCommon {
 
   import graphprog.lang.AST._
+  import graphprog.lang.Printer
   import graphprog.Utils._
   import graphprog.Controller.Options
   import scala.annotation.tailrec
@@ -33,6 +34,15 @@ protected[test] object TestCommon {
   val listFieldLayout = Map.empty + ("Node" -> List(List("value", "next")))
   val btreeFieldLayout = Map.empty + ("Node" -> List(List("parent"), List("value"), List("left", "right")))
   val rbtreeFieldLayout = Map.empty + ("Node" -> List(List("parent"), List("value"), List("color"), List("left", "right")))
+
+  def stringOfList(v: Value, printer: Printer, seen: Set[Int] = Set[Int]()): String = v match {
+    case Null => "null"
+    case Object(id, _, fields) => 
+      if (seen contains id)
+	printer.stringOfValue(fields("value"))
+      else
+	printer.stringOfValue(fields("value")) + " -> " + stringOfList(fields("next"), printer, seen + id)
+  }
 
   def layoutList(list: Object, widthFn: Value => Int, heightFn: Value => Int, spacing: Int): Iterable[(Object, (Int, Int))] = {
     val nodeWidth = widthFn(list)

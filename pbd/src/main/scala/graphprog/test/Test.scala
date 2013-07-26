@@ -60,16 +60,8 @@ object Test {
       }
     }
 
-    def stringOfList(v: Value, seen: Set[Int] = Set[Int]()): String = v match {
-      case Null => "null"
-      case Object(id, _, fields) => 
-	if (seen contains id)
-	  printer.stringOfValue(fields("value"))
-	else
-	  printer.stringOfValue(fields("value")) + " -> " + stringOfList(fields("next"), seen + id)
-    }
     val listPrintHelpers: PartialFunction[String, Value => String] = (s: String) => s match {
-      case "Node" => v => "List(" + stringOfList(v) + ")"
+      case "Node" => v => "List(" + stringOfList(v, printer) + ")"
     }
 
     def makeNode(id: Int, value: Int, next: Value): Value = Object(id, "Node", HashMap.empty ++ List(("value" -> value), ("next" -> next)))

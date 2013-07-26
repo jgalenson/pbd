@@ -18,7 +18,11 @@ class CachingExecutor(private val functions: Map[String, Program], private val p
     equivalences.get((memory, e)) match {
       case Some((mOpt, v)) =>
 	mOpt.foreach{ m => memory.cloneFrom(m) }
-        v
+        v match {  // We have to use the current memory's version of the result if it is in the heap.
+	  case IntArray(id, _) => memory.getArray(id).get
+	  case Object(id, _, _) => memory.getObject(id).get
+	  case v => v
+	}
       case None => 
 	//misses += 1
 	val initMem = memory.clone

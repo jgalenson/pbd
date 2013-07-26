@@ -3,12 +3,12 @@ package graphprog.test
 object TestExecution {
 
   import graphprog.lang.AST._
-  import graphprog.lang.{ Executor, Memory, Printer, IteratorExecutor }
+  import graphprog.lang.{ Executor, Memory, Printer, IteratorExecutor, CachingExecutor }
   import graphprog.Controller._
   import graphprog.Utils._
   import graphprog.lang.Compiler._
   import graphprog.synthesis.Synthesis._
-  import scala.collection.mutable.HashMap
+  import scala.collection.mutable.{ HashMap, Map => MMap }
   import graphprog.Controller.ObjectLayout
   import TestCommon._
 
@@ -16,6 +16,7 @@ object TestExecution {
     parseCommandLine(args)
     testExecute()
     testIteratorExecute()
+    testCachedExecutor()
   }
 
   val printer = new Printer(Map[String, Value => String](), false)
@@ -314,4 +315,32 @@ object TestExecution {
       iteratorExecutor.executeNext(mem)
     }
   }
+
+  def testCachedExecutor() {
+
+    def makeNode(id: Int, v: Int, n: Value): Object = Object(id, "Node", MMap.empty[String, Value] ++ List(("value" -> IntConstant(v)), ("next" -> n)))
+    def makeList() = makeNode(0, 0, makeNode(1, 1, makeNode(2, 2, makeNode(3, 3, Null))))
+    val revStmts = List(Assign("l", Call("reverse", List("l"))), Assert(EQ(FieldAccess("l", "value"), 3)))
+    val printHelpers: PartialFunction[String, Value => String] = (s: String) => s match {
+      case "Node" => v => "List(" + stringOfList(v, printer) + ")"
+    }
+    val listPrinter = new Printer(printHelpers, false)
+    
+    def test(executor: Executor): String = {
+      println("Testing with executor " + executor.toString)
+      val mem = new Memory(List(("l", makeList())))
+      println("Initial memory: " + listPrinter.stringOfMemory(mem))
+      val (v, m) = executor.executeStmts(mem, revStmts)
+      println("Initial memory: " + listPrinter.stringOfMemory(mem))
+      println("Final memory: " + listPrinter.stringOfMemory(m))
+      m.toString
+    }
+
+    val defaultExecutor = new Executor(mapOfPrograms(reverseProgram), listPrinter)
+    val cachingExecutor = new CachingExecutor(mapOfPrograms(reverseProgram), listPrinter)
+    
+    assert(test(defaultExecutor) == test(cachingExecutor))
+
+  }
+
 }
