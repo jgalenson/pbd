@@ -198,6 +198,7 @@ protected[test] object TestCommon {
     }
     var dumpBackupData: Option[String] = None
     var loadBackupData: Option[String] = None
+    var extraOptions = scala.collection.mutable.ListBuffer.empty[String]
     var i = 0
     while (i < args.length) {
       if (args(i) == "--help") {
@@ -213,13 +214,13 @@ protected[test] object TestCommon {
 	loadBackupData = Some(args(i + 1))
 	i += 2
       } else {
-        showUsage()
-        System.exit(1)
+        extraOptions += args(i)
+	i += 1
       }
     }
     if (!seedSet)
       setRandomSeed(nextLong())
-    new Options(dumpBackupData, loadBackupData)
+    new Options(dumpBackupData, loadBackupData, extraOptions.toList)
   }
 
 }

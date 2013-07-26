@@ -17,9 +17,11 @@ object RBTree {
     val options = parseCommandLine(args)
     //showRandomTree(15)
     //testExecute()
-    synthesizeLeftRotate(options)
-    //synthesizeTreeInsert(options)
-    //synthesizeRBInsert(options)
+    options.extraArgs.headOption match {
+      case Some("tinsert") => synthesizeTreeInsert(options)
+      case Some("rbinsert") => synthesizeRBInsert(options)
+      case _ => synthesizeLeftRotate(options)
+    }
   }
 
   // Red is 0, Black is 1.  -1 is undefined for non-RB trees.

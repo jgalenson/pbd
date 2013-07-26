@@ -301,6 +301,6 @@ object Controller {
   protected[graphprog] case class NormalBreakpoint(line: Stmt) extends Breakpoint
   protected[graphprog] case class ConditionalBreakpoint(line: Stmt, condition: Expr) extends Breakpoint
 
-  class Options(val dumpBackupData: Option[String], val loadBackupData: Option[String])
+  class Options(val dumpBackupData: Option[String], val loadBackupData: Option[String], val extraArgs: List[String])
 
 }
