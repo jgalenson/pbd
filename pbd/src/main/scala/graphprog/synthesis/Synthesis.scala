@@ -539,7 +539,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	  breakpointsToRemove = Nil
 	  if (breakpoints exists { _ match {
 	    case NormalBreakpoint(s) => curStmt eq s
-	    case ConditionalBreakpoint(s, c) => curStmt.eq(s) && (try { defaultExecutor.evaluateBoolean(memory, c) } catch { case _ => updateDisplayShort(false); controller.displayMessage("Evaluation of this breakpoint's condition crashed."); true })  // TODO: Is this how we want to handle this case?
+	    case ConditionalBreakpoint(s, c) => curStmt.eq(s) && (try { defaultExecutor.evaluateBoolean(memory, c) } catch { case _: Throwable => updateDisplayShort(false); controller.displayMessage("Evaluation of this breakpoint's condition crashed."); true })  // TODO: Is this how we want to handle this case?
 	  } })
 	    continue = false
 	  // See if we're at the point where we need to step through the already-seen branch of a conditional.
@@ -568,7 +568,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 		case _ =>
 	      }
 	      // Filter out things that are illegal and cause errors
-	      val newPossibilities = possibilities filter { p => try { val v = defaultExecutor.evaluate(memory, p); !isErrorOrFailure(v) } catch { case _ => false } }
+	      val newPossibilities = possibilities filter { p => try { val v = defaultExecutor.evaluate(memory, p); !isErrorOrFailure(v) } catch { case _: Throwable => false } }
 	      if (newPossibilities.isEmpty)
 		doFixStepShort(None)  // TODO: If newPossibilities is empty, get this trace and generate a new hole from all the evidence with depth+1?  Requires that I combine evidence and possibilities holes.
 	      // If all possibilities yield the same result, use it.
@@ -1419,7 +1419,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	      if (!possibilities.exists{ p => yieldEquivalentResults(mem, cur, p, defaultExecutor) })  // TODO: Check in more depth?
 		return false
 	    case next =>
-	      if (!(try { yieldEquivalentResults(mem, cur, next, defaultExecutor) } catch { case _ => false }))
+	      if (!(try { yieldEquivalentResults(mem, cur, next, defaultExecutor) } catch { case _: Throwable => false }))
 		return false
 	  }
 	  checkIterator(rest)

@@ -237,7 +237,7 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
    */ 
   private def getValidChoices(exprs: Iterable[Expr], evidence: Iterable[(Action, Memory)], executor: Executor = defaultExecutor): Iterable[Expr] = {
     val fullEvidence = evidence map { case (action, memory) => val (result, memAfter) = executor.execute(memory, action); (memory, result, memAfter) }
-    val goodExprs = exprs filter { e => fullEvidence forall { case (memBefore, result, memAfter) => try { yieldEquivalentResults(memBefore, e, result, memAfter, executor) } catch { case _ => false } }}
+    val goodExprs = exprs filter { e => fullEvidence forall { case (memBefore, result, memAfter) => try { yieldEquivalentResults(memBefore, e, result, memAfter, executor) } catch { case _: Throwable => false } }}
     if (evidence.size > 0 && evidence.forall{ _._1.isInstanceOf[Call] } && holdsOverIterable(evidence, (x: (Action, Memory), y: (Action, Memory)) => (x._1, y._1) match { case (Call(n1, _), Call(n2, _)) => n1 == n2 case _ => throw new RuntimeException })) {  // TODO: This shouldn't be needed once I add expression holes.
       val functionName = evidence.head._1.asInstanceOf[Call].name
       goodExprs filter { _ match { case Call(n1, _) => n1 == functionName case _ => false }}
@@ -347,7 +347,7 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
 	  case (m, None) => defaultExecutor.evaluateInt(m, ArrayLength(r))
 	  case (_, Some(size)) => size
 	}.sum
-	val finalExprs = if (isPartialTrace) exprs else exprs filter { case r: Range => try { numIterations(r) == assigns.size } catch { case _ => false } }  // If isPartialTrace is true, we might see only the first iteration of a loop with more than one iteration, so we cannot check that we have the right number of iterations.
+	val finalExprs = if (isPartialTrace) exprs else exprs filter { case r: Range => try { numIterations(r) == assigns.size } catch { case _: Throwable => false } }  // If isPartialTrace is true, we might see only the first iteration of a loop with more than one iteration, so we cannot check that we have the right number of iterations.
 	finalExprs map { In(v, _) }
       }
       (evidence.head._1: @unchecked) match {

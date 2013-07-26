@@ -59,7 +59,7 @@ object Utils {
       try {
 	  workFn
       } catch {
-	case e =>  // If this thread throws an exception, we must catch and rethrow it or we will silently miss the error and hang.
+	case e: Throwable =>  // If this thread throws an exception, we must catch and rethrow it or we will silently miss the error and hang.
 	  e.printStackTrace()
 	  throw e
       }
