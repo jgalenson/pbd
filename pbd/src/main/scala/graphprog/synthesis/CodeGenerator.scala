@@ -40,13 +40,13 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
       def genExprsRec(depth: Int) {
 	if (depth > maxDepth)
 	  return
+	val vars = evidence.map{ _._2.keys.toSet }.reduce{ (a, c) => a.intersect(c) }.map{ s => Var(s) }  // Ignore variables that don't exist in all memories.
 	evidence.groupBy{ _._2 }.foreach{ case (memory, evidence) => {
 	  val targetType = typer.typeOfAction(evidence.head._1, memory)
 	  val constants = List(Null)
-	  val vars = memory.keys map { s => Var(s) }
 	  val curVariables = if (depth == maxDepth) vars filter { v => exprHasType(v, targetType, memory) } else vars
 	  val nextLevel = getRepresentatives(memory)
-	  //println("Memory: " + memory)
+	  //println("Memory: " + shortPrinter.stringOfMemory(memory))
 	  //println("Depth " + depth + "/" + maxDepth + " next level: " + iterableToString(nextLevel, ", ", (e: Expr) => shortPrinter.stringOfExpr(e)))
 	  val binaryOps = pairs(nextLevel, nextLevel, memory).flatMap{ t => t match {
 	    // Reduce the number of possibilities by ignoring duplicates, unnecessary ops, etc.
@@ -59,7 +59,7 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
 	    case (e1, e2) if targetType == BooleanType && typer.typeOfExpr(e1, memory) == StringType && typer.typeOfExpr(e2, memory) == StringType && shortPrinter.stringOfExpr(e1) <= shortPrinter.stringOfExpr(e2) => List(EQ(e1, e2), NE(e1, e2))
 	    case _ => Nil
 	  }}
-	  val calls = functions.values.filter{ x => depth < maxDepth || canBeSameType(x.typ, targetType) }.flatMap{ p => {
+	  val calls = functions.values.filter{ x => (depth < maxDepth || canBeSameType(x.typ, targetType)) && (targetType == UnitType || x.typ != UnitType) }.flatMap{ p => {  // Only explore unit calls if the target type is unit
 	    val actualsPossibilities = p.inputs map { t => nextLevel filter { e => exprHasType(e, t._2, memory) } }
 	    makeCalls(p.name, actualsPossibilities)
 	  }}
@@ -80,21 +80,47 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
 	    else if (!curMemory.exists{ curMemory => crashingExprs.getOrElseUpdate(e, isErrorOrFailure(cachingExecutor.evaluate(curMemory, e))) })
 	      addExpr(memory, e, getResult(e, memory, result))
 	  } }
-	  //println("Equivalences: " + iterableToString(equivalences(memory), ", ", (kv: (Result, ListBuffer[Expr])) => { kv._1 match { case v: Value => soe(v) case SideEffect(ms, v) => kv._1.toString } } + " -> {" + iterableToString(kv._2, ", ", (e: Expr) => soe(e)) + "}"))
+	  //println("Equivalences: " + iterableToString(equivalences(memory), ", ", (kv: (Result, ListBuffer[Expr])) => { kv._1 match { case v: Value => shortPrinter.stringOfExpr(v) case SideEffect(ms, v) => kv._1.toString } } + " -> {" + iterableToString(kv._2, ", ", (e: Expr) => shortPrinter.stringOfExpr(e)) + "}"))
 	} }
+	// If an expression crashed in one memory, remove all expressions that contain it as a subexpression from equivalences for other memories.  Without this, when combining equivalences at the end, we'll keep things that crash in some memories but not others.
+	def removeCrashers() {
+	  val crashers = crashingExprs.filter{ case (k, v) => v }.keys
+	  if (crashers.nonEmpty) {
+	    val equivs = combineEquivalences()  // We have to expand equivalences here.  E.g., we might have x=y and foo(x) crashes, but in memory x!=y so we must remove foo(x) and foo(y).
+	    val fullCrashers = crashers.flatMap{ crashingExpr => expandEquivalences(List(crashingExpr), equivs) }.toSet
+	    def containsCrasher(expr: Expr): Boolean = fullCrashers.contains(expr) || { expr match {
+	      case _: Value | Var(_) | ObjectID(_) | ArrayID(_) => false
+	      case IntArrayAccess(a, i) => containsCrasher(a) || containsCrasher(i)
+	      case FieldAccess(o, _) => containsCrasher(o)
+	      case ArrayLength(e) => containsCrasher(e)
+	      case Call(_, args) => args.exists(containsCrasher)
+	      case In(_, r) => containsCrasher(r)
+	      case r: Range => containsCrasher(r.min) || containsCrasher(r.max)
+	      case op: BinaryOp => containsCrasher(op.lhs) || containsCrasher(op.rhs)
+	      case Not(e) => containsCrasher(e)
+	      case LiteralExpr(e) => containsCrasher(e)
+	      case _: Hole => throw new IllegalArgumentException(expr.toString)
+	    } }
+	    equivalences.values.foreach{ memEquivs => {
+	      memEquivs.values.foreach{ equivs => equivs --= equivs.filter(containsCrasher) }
+	      memEquivs.toList.foreach{ case (k, v) => if (v.isEmpty) memEquivs -= k }
+	    } }
+	  }
+	}
+	removeCrashers()
 	genExprsRec(depth + 1)
       }
-      genExprsRec(0)  // TODO: This is a bit slow and could be optimized.
-      //def soe(e: Expr): String = shortPrinter.stringOfExpr(e)
-      val finalEquivMap = {
+      def combineEquivalences(): MMap[Expr, MSet[Expr]] = {
 	val combinedEquivs = MHashMap.empty[Expr, MSet[Expr]]
 	val allClasses = MHashSet.empty[MSet[Expr]] ++ equivalences.values.flatMap{ _.values.map{ MHashSet.empty[Expr] ++ _ } }
-	//println("All classes: " + iterableToString(allClasses, ", ", (cls: MSet[Expr]) => "{" + iterableToString(cls, ", ", (e: Expr) => soe(e)) + "}"))
+	//println("All classes: " + iterableToString(allClasses, ", ", (cls: MSet[Expr]) => "{" + iterableToString(cls, ", ", (e: Expr) => shortPrinter.stringOfExpr(e)) + "}"))
 	allClasses.foreach{ curClass => curClass.foreach{ expr => combinedEquivs += (expr -> combinedEquivs.getOrElse(expr, curClass).intersect(curClass)) } }  // TODO: This is a bit slow and could be optimized.
 	combinedEquivs
       }
-      //println("Pre equivalences: " + iterableToString(equivalences, ", ", (me: (Memory, MHashMap[Result, ListBuffer[Expr]])) => me._1 + " -> " + iterableToString(me._2, ", ", (kv: (Result, ListBuffer[Expr])) => { kv._1 match { case v: Value => soe(v) case SideEffect(ms, v) => kv._1.toString } } + " -> {" + iterableToString(kv._2, ", ", (e: Expr) => soe(e)) + "}")))
-      //println("Post equivalences: " + iterableToString(finalEquivMap, ", ", (kv: (Expr, MSet[Expr])) => soe(kv._1) + " -> {" + iterableToString(kv._2, ", ", (e: Expr) => soe(e)) + "}"))
+      genExprsRec(0)  // TODO: This is a bit slow and could be optimized.
+      val finalEquivMap = combineEquivalences()
+      //println("Pre equivalences: " + iterableToString(equivalences, ", ", (me: (Memory, MHashMap[Result, ListBuffer[Expr]])) => me._1 + " -> " + iterableToString(me._2, ", ", (kv: (Result, ListBuffer[Expr])) => { kv._1 match { case v: Value => shortPrinter.stringOfExpr(v) case SideEffect(ms, v) => kv._1.toString } } + " -> {" + iterableToString(kv._2, ", ", (e: Expr) => shortPrinter.stringOfExpr(e)) + "}")))
+      //println("Post equivalences: " + iterableToString(finalEquivMap, ", ", (kv: (Expr, MSet[Expr])) => shortPrinter.stringOfExpr(kv._1) + " -> {" + iterableToString(kv._2, ", ", (e: Expr) => shortPrinter.stringOfExpr(e)) + "}"))
       val demonstrations = evidence.collect{ case (v: Value, _) => v }.toSet
       val candidates = demonstrations ++ finalEquivMap.values.toSet.map{ (cls: MSet[Expr]) => cls.head }  // TODO: This is a bit slow and could be optimized.
       (candidates, finalEquivMap)
@@ -147,7 +173,7 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
 	curEquivalences
       }
       val candidates = validExprs.flatMap{ e => equivalences.getOrElse(e, Set(e)).toSet }.toSet  // We need to expand all of the equivalent expressions since some will have different forms.
-      //println("Candidates: {" + iterableToString(candidates, ", ", (e: Expr) => soe(e)) + "}")
+      //println("Candidates: {" + iterableToString(candidates, ", ", (e: Expr) => shortPrinter.stringOfExpr(e)) + "}")
       candidates.flatMap(expandRec).toSet
     }
     // TODO/FIXME: Improve this.  Also, I could do this check before generating the possibilities and use it to guide them (e.g. I don't need a search if they give me osmething unambiguous like a[i] < x+y, and if they give me a[5] I only need to fill the 5 hole, not the a[] part).
@@ -179,7 +205,7 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
       { e match {
 	case _: Value | Var(_) | ObjectID(_) | ArrayID(_) => 0
 	case IntArrayAccess(a, i) => max2(a, i) + 1
-	case FieldAccess(o,_) => getDepth(o) + 1
+	case FieldAccess(o, _) => getDepth(o) + 1
 	case ArrayLength(e) => getDepth(e) + 1
 	case Call(_, args) => maxN(args) + 1
 	case In(_, r) => getDepth(r) + 1
@@ -190,18 +216,16 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
 	case _: Hole => throw new IllegalArgumentException(e.toString)
       } } + { if (isDoubleInfix(e)) 1 else 0 }
     }
-    //def soe(e: Expr): String = shortPrinter.stringOfExpr(e)
-    //def som(m: Memory): String = shortPrinter.stringOfMemory(m)
     //println("\nEvidence: " + shortPrinter.stringOfStmt(StmtEvidenceHole(evidence.toList)))
     val (exprs, equivalences) = genExprs()
-    //println("Exprs: {" + iterableToString(exprs, ", ", (e: Expr) => soe(e)) + "}")
-    //println("Equivalences: " + iterableToString(equivalences, ", ", (kv: (Expr, MSet[Expr])) => soe(kv._1) + " -> {" + iterableToString(kv._2, ", ", (e: Expr) => soe(e)) + "}"))
+    //println("Exprs: {" + iterableToString(exprs, ", ", (e: Expr) => shortPrinter.stringOfExpr(e)) + "}")
+    //println("Equivalences: " + iterableToString(equivalences, ", ", (kv: (Expr, MSet[Expr])) => shortPrinter.stringOfExpr(kv._1) + " -> {" + iterableToString(kv._2, ", ", (e: Expr) => shortPrinter.stringOfExpr(e)) + "}"))
     val validExprs = 
       if (checker.isEmpty)
 	getValidChoices(exprs, evidence, cachingExecutor)
       else
 	exprs filter { e => evidence forall { case (a, m) => checker.get(e, a, m) } }
-    //println("Valid exprs: {" + iterableToString(validExprs, ", ", (e: Expr) => soe(e)) + "}")
+    //println("Valid exprs: {" + iterableToString(validExprs, ", ", (e: Expr) => shortPrinter.stringOfExpr(e)) + "}")
     val allExprs = expandEquivalences(validExprs, equivalences).filter{ e => getDepth(e) <= maxDepth }.filter(hasCorrectForm(evidence.map{ _._1 }))
     //println("Final exprs: {" + iterableToString(allExprs, ", ", (e: Expr) => shortPrinter.stringOfExpr(e)) + "}")
     allExprs
@@ -351,7 +375,7 @@ object CodeGenerator {
   protected[synthesis] val INITIAL_EXPR_DEPTH = 2
 
   // Maximum depth to check expressions.
-  // Note that the user can force use to search a higher depth by asking for it; this only controls what we search initialls.
+  // Note that the user can force use to search a higher depth by asking for it; this only controls what we search initially.
   private val MAX_EXPR_DEPTH = 3
 
 }
