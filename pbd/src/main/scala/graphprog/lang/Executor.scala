@@ -23,17 +23,15 @@ class Executor(private val functions: Map[String, Program], private val printer:
 	//println("Updating memory: " + printer.stringOfExpr(l) + " -> " + v)
 	l match {
           case Var(n) => memory += (n -> v)
-          case IntArrayAccess(a, iExpr) =>
+          case ArrayAccess(a, iExpr) =>
 	    val arrayObj = eval(memory, a)
-	    if (!arrayObj.isInstanceOf[IntArray])
+	    if (!arrayObj.isInstanceOf[ArrayValue])
 	      return ErrorConstant
-	    val array = arrayObj.asInstanceOf[IntArray].array
+	    val array = arrayObj.asInstanceOf[ArrayValue].array
 	    val i = evalInt(memory, iExpr)
 	    if (i < 0 || i >= array.length)
 	      return ErrorConstant
-	    if (!v.isInstanceOf[IntConstant])
-	      return ErrorConstant
-	    array(i) = v.asInstanceOf[IntConstant].n
+	    array(i) = v
 	  case FieldAccess(o, field) =>
 	    val obj = eval(memory, o)
 	    if (!obj.isInstanceOf[Object])
@@ -118,7 +116,7 @@ class Executor(private val functions: Map[String, Program], private val printer:
 	val newMemories = stmts map { a => val (v, m) = execute(memory, a); if (v == BreakHit) return ErrorConstant else if (isErrorOrFailure(v)) return v else m }
 	val modifications = newMemories map { newMemory => diffMemories(memory, newMemory) }  // TODO-optimization: I'm recomputing memory.getObjectsAndArrays().toSet here
 	// Combine results and ensure that there are not multiple writes to the same location.
-	val (modVars, modFields, modArrays) = modifications.foldLeft((Map[String, Value](), Map[(Int, String), Value](), Map[(Int, Int), Int]())) { case ((accVars, accFields, accModArrs), (curVars, curFields, curModArrs)) => {
+	val (modVars, modFields, modArrays) = modifications.foldLeft((Map[String, Value](), Map[(Int, String), Value](), Map[(Int, Int), Value]())) { case ((accVars, accFields, accModArrs), (curVars, curFields, curModArrs)) => {
 	  if (!accVars.keys.toSet.intersect(curVars.keys.toSet).isEmpty || !accFields.keys.toSet.intersect(curFields.keys.toSet).isEmpty || !accModArrs.keys.toSet.intersect(curModArrs.keys.toSet).isEmpty)
 	    return ErrorConstant
 	  (accVars ++ curVars, accFields ++ curFields, accModArrs ++ curModArrs)
@@ -127,7 +125,7 @@ class Executor(private val functions: Map[String, Program], private val printer:
 	// Update memory with the result of the unordered statements.
 	def getRealValue(v: Value) = v match {
 	  case Object(id, _, _) => objects(id)
-	  case IntArray(id, _) => arrays(id)
+	  case ArrayValue(id, _, _) => arrays(id)
 	  case _ => v
 	}
 	modFields foreach { case ((id, field), value) => objects(id).fields += (field -> getRealValue(value)) }
@@ -200,16 +198,16 @@ class Executor(private val functions: Map[String, Program], private val printer:
         if (!memory.contains(n))
           throw new ExecuteError(e, "Variable does not exist.")
 	memory(n)
-      case IntArrayAccess(a, iExpr) =>
+      case ArrayAccess(a, iExpr) =>
 	val arrayObj = eval(memory, a)
-	if (!arrayObj.isInstanceOf[IntArray])
+	if (!arrayObj.isInstanceOf[ArrayValue])
 	  return ErrorConstant
-        val array = arrayObj.asInstanceOf[IntArray].array
+        val array = arrayObj.asInstanceOf[ArrayValue].array
 	val i = evalInt(memory, iExpr)
 	if (i < 0 || i >= array.length)
 	  ErrorConstant
 	else
-          IntConstant(array(i))
+          array(i)
       case FieldAccess(obj, field) =>
 	val o = eval(memory, obj)
 	if (!o.isInstanceOf[Object])
@@ -223,10 +221,10 @@ class Executor(private val functions: Map[String, Program], private val printer:
 	}
       case ArrayLength(e) =>
 	val a = eval(memory, e)
-	if (!a.isInstanceOf[IntArray])
+	if (!a.isInstanceOf[ArrayValue])
 	  ErrorConstant
 	else
-	  IntConstant(a.asInstanceOf[IntArray].array.length)
+	  IntConstant(a.asInstanceOf[ArrayValue].array.length)
       case ObjectID(id) =>
 	val oOpt = memory.getObject(id)
 	if (oOpt.isEmpty)
@@ -255,7 +253,7 @@ class Executor(private val functions: Map[String, Program], private val printer:
 	val min = evalInt(memory, r.min)
 	val max = evalInt(memory, r.max)
 	val range = if (r.isInclusive) min to max else min until max
-	IntArray(Int.MinValue, range.toArray)  // TODO-bug: min value might be used
+	ArrayValue(Int.MinValue, range.toArray.map{ n => IntConstant(n) }, IntType)  // TODO-bug: min value might be used
       case EQ(l, r) => handleEquality(l, r)
       case NE(l, r) => handleDisequality(l, r)
       case LT(l, r) => handleIntComparison(l, r, _ < _)

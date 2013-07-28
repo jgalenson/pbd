@@ -87,11 +87,11 @@ object Test {
     )))
 
     println("")
-    test(new Trace("arraytest", UnitType, List(("a", IntArray(0, List(5, 42, 137) toArray))), Map.empty, Map.empty, List(
+    test(new Trace("arraytest", UnitType, List(("a", makeIntArray(0, List(5, 42, 137) toArray))), Map.empty, Map.empty, List(
       Assume(GE(ArrayLength("a"), 3)),
       Assign("x", 5),  // a(0)
       Assign("y", 3),  // (a.length)
-      Assign(IntArrayAccess("a", 2), 2)  // 2
+      Assign(ArrayAccess("a", 2), 2)  // 2
     )))
 
     println("")
@@ -155,7 +155,7 @@ object Test {
     )))
 
     println("")
-    test(new Trace("array1", UnitType, List(("a", IntArray(0, List(-5, -5, -5, -5, -5, -5, -5, 42, 137) toArray)), ("i", 7), ("j", 8)), Map.empty, Map.empty, List(
+    test(new Trace("array1", UnitType, List(("a", makeIntArray(0, List(-5, -5, -5, -5, -5, -5, -5, 42, 137) toArray)), ("i", 7), ("j", 8)), Map.empty, Map.empty, List(
       Assume(GE(ArrayLength("a"), 9)),
       Assume(And(GE("i", 0), LT("i", ArrayLength("a")))),
       Assume(And(GE("j", 0), LT("j", ArrayLength("a")))),
@@ -163,7 +163,7 @@ object Test {
     )))
 
     println("")
-    test(new Trace("selectionSort", UnitType, List(("a", IntArray(0, List(42, 17, 137) toArray))), Map.empty, Map.empty, List(
+    test(new Trace("selectionSort", UnitType, List(("a", makeIntArray(0, List(42, 17, 137) toArray))), Map.empty, Map.empty, List(
       Assign("i", 0),  // i := 0
       Iterate(List(
 	(LT(0, 2), List(  // i < a.length - 1
@@ -175,8 +175,8 @@ object Test {
 	    (LT(3, 3), List())
 	  )),
 	  Assign("tmp", 42),  // tmp := a(i)
-	  Assign(IntArrayAccess("a", "i"), 17),  // a(i) := a(min)
-	  Assign(IntArrayAccess("a", "min"), 42),  // a(min) := tmp
+	  Assign(ArrayAccess("a", "i"), 17),  // a(i) := a(min)
+	  Assign(ArrayAccess("a", "min"), 42),  // a(min) := tmp
 	  Assign("i", 1)
 	)),
 	(LT(1, 2), List(
@@ -187,8 +187,8 @@ object Test {
 	    (LT(3, 3), List())
 	  )),
 	  Assign("tmp", 42),  // tmp := a(i)
-	  Assign(IntArrayAccess("a", "i"), 42),
-	  Assign(IntArrayAccess("a", "min"), 42),
+	  Assign(ArrayAccess("a", "i"), 42),
+	  Assign(ArrayAccess("a", "min"), 42),
 	  Assign("i", 2)
 	)),
 	(LT(2, 2), List())
@@ -254,13 +254,13 @@ object Test {
     )), listPrintHelpers, None, None, listComparator, listFieldLayout, listLayout)
 
     println("")
-    test(new Trace("array_zero", IntType, List(("a", IntArray(0, List(42, 137) toArray)), ("x", 13)), Map.empty, Map.empty, List(
+    test(new Trace("array_zero", IntType, List(("a", makeIntArray(0, List(42, 137) toArray)), ("x", 13)), Map.empty, Map.empty, List(
       Assume(GT(ArrayLength("a"), 0)),
       55
     )))
 
     println("")
-    test(new Trace("find1", UnitType, List(("target", 42), ("a", IntArray(0, List(8, 11, 42) toArray))), Map.empty, Map.empty, List(
+    test(new Trace("find1", UnitType, List(("target", 42), ("a", makeIntArray(0, List(8, 11, 42) toArray))), Map.empty, Map.empty, List(
       Assign("i", 0),
       Iterate(List(
 	(LT(0, 3), List(
@@ -277,7 +277,7 @@ object Test {
     )))
 
     println("")
-    test(new Trace("find2", UnitType, List(("target", 42), ("a", IntArray(0, List(8, 11, 42) toArray))), Map.empty, Map.empty, List(
+    test(new Trace("find2", UnitType, List(("target", 42), ("a", makeIntArray(0, List(8, 11, 42) toArray))), Map.empty, Map.empty, List(
       Assign("i", 0),
       Iterate(List(
 	(LT(0, 3), List(
@@ -296,7 +296,7 @@ object Test {
     )))
 
     println("")
-    test(new Trace("find3", UnitType, List(("target", 42), ("a", IntArray(0, List(8, 11, 42) toArray))), Map.empty, Map.empty, List(
+    test(new Trace("find3", UnitType, List(("target", 42), ("a", makeIntArray(0, List(8, 11, 42) toArray))), Map.empty, Map.empty, List(
       Assign("found", false),
       Assign("i", 0),
       Iterate(List(
@@ -316,7 +316,7 @@ object Test {
     )))
 
     println("")
-    test(new Trace("intersect", UnitType, List(("a1", IntArray(0, List(8, 42, 137) toArray)), ("a2", IntArray(1, List(42, 17, 8) toArray))), mapOfPrograms(containsProgram), Map.empty, List(
+    test(new Trace("intersect", UnitType, List(("a1", makeIntArray(0, List(8, 42, 137) toArray)), ("a2", makeIntArray(1, List(42, 17, 8) toArray))), mapOfPrograms(containsProgram), Map.empty, List(
       UnorderedStmts(List(
 	Assign("count", 0),
 	Assign("i", 0)
@@ -379,13 +379,13 @@ object Test {
     )))
 
     println("")
-    test(new Trace("array_equality", UnitType, List(("a", IntArray(0, List(42, 137) toArray))), Map.empty, Map.empty, List(
+    test(new Trace("array_equality", UnitType, List(("a", makeIntArray(0, List(42, 137) toArray))), Map.empty, Map.empty, List(
       Assign("b", "a"),
       EQ("a", "b")
     )))
 
     println("")
-    test(new Trace("selectionSortSwap", UnitType, List(("a", IntArray(0, List(42, 17, 137) toArray))), mapOfPrograms(swapProgram), Map.empty, List(
+    test(new Trace("selectionSortSwap", UnitType, List(("a", makeIntArray(0, List(42, 17, 137) toArray))), mapOfPrograms(swapProgram), Map.empty, List(
       Assign("i", 0),  // i := 0
       Iterate(List(
 	(LT(0, 2), List(  // i < a.length - 1
@@ -424,13 +424,13 @@ object Test {
     )))
 
     println("")
-    test(new Trace("call4", UnitType, List(("a", IntArray(0, List(17, 42) toArray)), ("x", 0), ("y", 1)), mapOfPrograms(swapProgram), Map.empty, List(
+    test(new Trace("call4", UnitType, List(("a", makeIntArray(0, List(17, 42) toArray)), ("x", 0), ("y", 1)), mapOfPrograms(swapProgram), Map.empty, List(
       Assume(And(And(GE("x", 0), GE("y", 0)), And(GT(ArrayLength("a"), "x"), GT(ArrayLength("a"), "y")))),
       Call("swap", List("a", 0, 1))
     )))
 
     println("")
-    test(new Trace("selectionSort2", UnitType, List(("a", IntArray(0, List(137, 17, 42) toArray))), mapOfPrograms(swapProgram), Map.empty, List(
+    test(new Trace("selectionSort2", UnitType, List(("a", makeIntArray(0, List(137, 17, 42) toArray))), mapOfPrograms(swapProgram), Map.empty, List(
       Assign("i", 0),  // i := 0
       Iterate(List(
 	(LT(0, 2), List(  // i < a.length - 1
@@ -464,22 +464,22 @@ object Test {
     )))
 
     println("")
-    test(new Trace("inTest", UnitType, List(("a", IntArray(0, List(137, 17, 42) toArray))), mapOfPrograms(swapProgram), Map.empty, List(
+    test(new Trace("inTest", UnitType, List(("a", makeIntArray(0, List(137, 17, 42) toArray))), mapOfPrograms(swapProgram), Map.empty, List(
       Iterate(List(
 	(Assign("i", 0), List(  // i < a.length
-	  Assign(IntArrayAccess("a", 0), 0)
+	  Assign(ArrayAccess("a", 0), 0)
 	)),
 	(Assign("i", 1), List(  // i < a.length
-	  Assign(IntArrayAccess("a", 1), 0)
+	  Assign(ArrayAccess("a", 1), 0)
 	)),
 	(Assign("i", 2), List(  // i < a.length
-	  Assign(IntArrayAccess("a", 2), 0)
+	  Assign(ArrayAccess("a", 2), 0)
 	))
       ))
     )))
 
     println("")
-    test(new Trace("selectionSortForLoop", UnitType, List(("a", IntArray(0, List(137, 17, 42) toArray))), mapOfPrograms(swapProgram), Map.empty, List(
+    test(new Trace("selectionSortForLoop", UnitType, List(("a", makeIntArray(0, List(137, 17, 42) toArray))), mapOfPrograms(swapProgram), Map.empty, List(
       Iterate(List(
 	(Assign("i", 0), List(  // i < a.length - 1
 	  Assign("min", 0),  // min := i
@@ -500,7 +500,7 @@ object Test {
     )))
 
     println("")
-    test(new Trace("findLoop", UnitType, List(("target", 42), ("a", IntArray(0, List(8, 11, 42, 137) toArray))), Map.empty, Map.empty, List(
+    test(new Trace("findLoop", UnitType, List(("target", 42), ("a", makeIntArray(0, List(8, 11, 42, 137) toArray))), Map.empty, Map.empty, List(
       Iterate(List(
 	(Assign("i", 0), List(
 	  Conditional(EQ(8, 42), List())
@@ -515,7 +515,7 @@ object Test {
     )))
 
     // println("")
-    // test(new Trace("intersectForLoop", UnitType, List(("a1", IntArray(0, List(8, 42, 137) toArray)), ("a2", IntArray(1, List(42, 137, 17) toArray))), Map.empty, Map.empty, List(
+    // test(new Trace("intersectForLoop", UnitType, List(("a1", makeIntArray(0, List(8, 42, 137) toArray)), ("a2", makeIntArray(1, List(42, 137, 17) toArray))), Map.empty, Map.empty, List(
     //   Assign("count", LiteralExpr(0)),
     //   Iterate(List(
     // 	(Assign("i", 0), List(
@@ -553,7 +553,7 @@ object Test {
     // )))
 
     println("")
-    test(new Trace("literals", UnitType, List(("target", 42), ("a", IntArray(0, List(8, 11, 42, 137) toArray))), Map.empty, Map.empty, List(
+    test(new Trace("literals", UnitType, List(("target", 42), ("a", makeIntArray(0, List(8, 11, 42, 137) toArray))), Map.empty, Map.empty, List(
       LiteralAction(Assign("i", 0)),
       //Conditional(EQ(LiteralExpr("target"), LiteralExpr(42)), Nil),
       Iterate(List(
@@ -590,10 +590,10 @@ object Test {
     )))
 
     println("")
-    test(new Trace("arrayCloning", UnitType, List(("a", IntArray(0, List(8, 11, 42, 137) toArray))), Map.empty, Map.empty, List(
+    test(new Trace("arrayCloning", UnitType, List(("a", makeIntArray(0, List(8, 11, 42, 137) toArray))), Map.empty, Map.empty, List(
       Assume(GT(ArrayLength("a"), 0)),
       Assign("b", "a"),
-      Assign(IntArrayAccess("a", 0), LiteralExpr(13)),
+      Assign(ArrayAccess("a", 0), LiteralExpr(13)),
       Println(StringConstant("The next line should be a[0] or b[0]")),
       13  
     )))
@@ -631,7 +631,7 @@ object Test {
     )), listPrintHelpers, None, None, listComparator, listFieldLayout, listLayout)
 
     println("")
-    test(new Trace("selectionSort2WithUnordered", UnitType, List(("a", IntArray(0, List(137, 17, 42) toArray))), Map.empty, Map.empty, List(
+    test(new Trace("selectionSort2WithUnordered", UnitType, List(("a", makeIntArray(0, List(137, 17, 42) toArray))), Map.empty, Map.empty, List(
       Assign("i", 0),  // i := 0
       Iterate(List(
 	(LT(0, 2), List(  // i < a.length - 1
@@ -643,8 +643,8 @@ object Test {
 	    (LT(3, 3), List())
 	  )),
 	  UnorderedStmts(List(
-	    Assign(IntArrayAccess("a", 0), IntArrayAccess("a", 1)),
-	    Assign(IntArrayAccess("a", 1), IntArrayAccess("a", 0))
+	    Assign(ArrayAccess("a", 0), ArrayAccess("a", 1)),
+	    Assign(ArrayAccess("a", 1), ArrayAccess("a", 0))
 	  )),
 	  Assign("i", 1)
 	)),
@@ -656,8 +656,8 @@ object Test {
 	    (LT(3, 3), List())
 	  )),
 	  UnorderedStmts(List(
-	    Assign(IntArrayAccess("a", 1), IntArrayAccess("a", 2)),
-	    Assign(IntArrayAccess("a", 2), IntArrayAccess("a", 1))
+	    Assign(ArrayAccess("a", 1), ArrayAccess("a", 2)),
+	    Assign(ArrayAccess("a", 2), ArrayAccess("a", 1))
 	  )),
 	  Assign("i", 2)
 	)),
@@ -712,35 +712,35 @@ object Test {
     )), listPrintHelpers, None, None, listComparator, listFieldLayout, listLayout)
 
     println("")
-    test(new Trace("snapshot4", UnitType, List(("a", IntArray(0, List(137, 17, 11) toArray)), ("target" -> 42)), Map.empty, Map.empty, List(
+    test(new Trace("snapshot4", UnitType, List(("a", makeIntArray(0, List(137, 17, 11) toArray)), ("target" -> 42)), Map.empty, Map.empty, List(
       Iterate(List(
 	(Assign("i", 0), List(
-	  Snapshot(new Memory(List(("i" -> IntConstant(0)), ("target" -> IntConstant(42)), ("a" -> IntArray(0, List(42, 17, 11) toArray)))))
+	  Snapshot(new Memory(List(("i" -> IntConstant(0)), ("target" -> IntConstant(42)), ("a" -> makeIntArray(0, List(42, 17, 11) toArray)))))
 	)),
 	(Assign("i", 1), List(
-	  Snapshot(new Memory(List(("i" -> IntConstant(1)), ("target" -> IntConstant(42)), ("a" -> IntArray(0, List(42, 42, 11) toArray)))))
+	  Snapshot(new Memory(List(("i" -> IntConstant(1)), ("target" -> IntConstant(42)), ("a" -> makeIntArray(0, List(42, 42, 11) toArray)))))
 	)),
 	(Assign("i", 2), List(
-	  Snapshot(new Memory(List(("i" -> IntConstant(2)), ("target" -> IntConstant(42)), ("a" -> IntArray(0, List(42, 42, 42) toArray)))))
+	  Snapshot(new Memory(List(("i" -> IntConstant(2)), ("target" -> IntConstant(42)), ("a" -> makeIntArray(0, List(42, 42, 42) toArray)))))
 	))
       ))
     )))
 
     println("")
-    test(new Trace("snapshot5", UnitType, List(("in", 42), ("a", IntArray(0, List(137, 17, 11) toArray)), ("list" -> makeNode(1, 46, makeNode(2, 50, Null)))), Map.empty, listTypes, List(
+    test(new Trace("snapshot5", UnitType, List(("in", 42), ("a", makeIntArray(0, List(137, 17, 11) toArray)), ("list" -> makeNode(1, 46, makeNode(2, 50, Null)))), Map.empty, listTypes, List(
       Assume(EQ(ArrayLength("a"), 3)),
       Assume(And(And(NE("list", Null), NE(FieldAccess("list", "next"), Null)), EQ(FieldAccess(FieldAccess("list", "next"), "next"), Null))),
-      Snapshot(new Memory(List(("in" -> IntConstant(42)), ("x" -> IntConstant(137)), ("y" -> IntConstant(17)), ("a" -> IntArray(0, List(42, 42, 42) toArray)), ("list" -> makeNode(2, 50, makeNode(1, 46, Null))))))
+      Snapshot(new Memory(List(("in" -> IntConstant(42)), ("x" -> IntConstant(137)), ("y" -> IntConstant(17)), ("a" -> makeIntArray(0, List(42, 42, 42) toArray)), ("list" -> makeNode(2, 50, makeNode(1, 46, Null))))))
     )), fieldLayouts = listFieldLayout, objectLayouts = listLayout)
 
     println("")
-    test(new Trace("snapshot6", UnitType, List(("target", 42), ("a", IntArray(0, List(0, 1, 2) toArray))), Map.empty, Map.empty, List(
+    test(new Trace("snapshot6", UnitType, List(("target", 42), ("a", makeIntArray(0, List(0, 1, 2) toArray))), Map.empty, Map.empty, List(
       Assume(EQ(ArrayLength("a"), 3)),
-      Snapshot(new Memory(List(("target" -> IntConstant(42)), ("a" -> IntArray(0, List(0, 42, 2) toArray)))))
+      Snapshot(new Memory(List(("target" -> IntConstant(42)), ("a" -> makeIntArray(0, List(0, 42, 2) toArray)))))
     )))
 
     println("")
-    test(new Trace("selectionSortWithCorrectnessCondition", UnitType, List(("a", IntArray(0, List(42, 17, 137) toArray))), mapOfPrograms(checkSortedProgram), Map.empty, List(
+    test(new Trace("selectionSortWithCorrectnessCondition", UnitType, List(("a", makeIntArray(0, List(42, 17, 137) toArray))), mapOfPrograms(checkSortedProgram), Map.empty, List(
       Assign("i", 0),  // i := 0
       Iterate(List(
 	(LT(0, 2), List(  // i < a.length - 1
@@ -752,8 +752,8 @@ object Test {
 	    (LT(3, 3), List())
 	  )),
 	  Assign("tmp", 42),  // tmp := a(i)
-	  Assign(IntArrayAccess("a", "i"), 17),  // a(i) := a(min)
-	  Assign(IntArrayAccess("a", "min"), 42),  // a(min) := tmp
+	  Assign(ArrayAccess("a", "i"), 17),  // a(i) := a(min)
+	  Assign(ArrayAccess("a", "min"), 42),  // a(min) := tmp
 	  Assign("i", 1)
 	)),
 	(LT(1, 2), List(
@@ -764,8 +764,8 @@ object Test {
 	    (LT(3, 3), List())
 	  )),
 	  Assign("tmp", 42),  // tmp := a(i)
-	  Assign(IntArrayAccess("a", "i"), 42),
-	  Assign(IntArrayAccess("a", "min"), 42),
+	  Assign(ArrayAccess("a", "i"), 42),
+	  Assign(ArrayAccess("a", "min"), 42),
 	  Assign("i", 2)
 	)),
 	(LT(2, 2), List())

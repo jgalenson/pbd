@@ -41,17 +41,17 @@ object TestExecution {
       assert(false, "We should have failed this test but we didn't.")
     }
 
-    test(new Memory(List(("a" -> IntArray(0, List(3, 2, 4, 5, 1).toArray)))), List(
+    test(new Memory(List(("a" -> makeIntArray(0, List(3, 2, 4, 5, 1))))), List(
       Assign("bad", false),
       Assign("j", 1),
-      LT(IntArrayAccess("a", 1), IntArrayAccess("a", 0)),
+      LT(ArrayAccess("a", 1), ArrayAccess("a", 0)),
       Assign("min", 1),
       Assign("j", 2),
-      LT(IntArrayAccess("a", 2), IntArrayAccess("a", 1)),
+      LT(ArrayAccess("a", 2), ArrayAccess("a", 1)),
       Assign("j", 3),
-      LT(IntArrayAccess("a", 3), IntArrayAccess("a", 1)),
+      LT(ArrayAccess("a", 3), ArrayAccess("a", 1)),
       Assign("j", 4),
-      LT(IntArrayAccess("a", 4), IntArrayAccess("a", 1)),
+      LT(ArrayAccess("a", 4), ArrayAccess("a", 1)),
       Assign("min", 4),
       Assign("if1", false),
       Assign("if22", false),
@@ -129,10 +129,10 @@ object TestExecution {
     ), Map.empty)
 
     println("")
-    test(new Memory(List(("a" -> IntArray(0, List(3, 2, 4, 5, 1).toArray)))), List(
+    test(new Memory(List(("a" -> makeIntArray(0, List(3, 2, 4, 5, 1))))), List(
       Call("swap", List("a", 0, 4)),
-      Assert(EQ(IntArrayAccess("a", 0), 1)),
-      Assert(EQ(IntArrayAccess("a", 4), 3)),
+      Assert(EQ(ArrayAccess("a", 0), 1)),
+      Assert(EQ(ArrayAccess("a", 4), 3)),
       Assign("x", Call("answer", Nil))
     ), mapOfPrograms(swapProgram, answerProgram))
  
@@ -201,19 +201,19 @@ object TestExecution {
     ), Map.empty)
 
     println("")
-    test(new Memory(List(("a" -> IntArray(0, List(1, 0).toArray)))), List(
+    test(new Memory(List(("a" -> makeIntArray(0, List(1, 0))))), List(
       UnorderedStmts(List(
-	Assign(IntArrayAccess("a", 0), IntArrayAccess("a", 1)),
-	Assign(IntArrayAccess("a", 1), IntArrayAccess("a", 0))
+	Assign(ArrayAccess("a", 0), ArrayAccess("a", 1)),
+	Assign(ArrayAccess("a", 1), ArrayAccess("a", 0))
       ))
     ), Map.empty)
 
     // This should fail
     println("")
-    test(new Memory(List(("a" -> IntArray(0, List(1, 0).toArray)))), List(
+    test(new Memory(List(("a" -> makeIntArray(0, List(1, 0))))), List(
       UnorderedStmts(List(
-	Assign(IntArrayAccess("a", 0), IntArrayAccess("a", 42)),
-	Assign(IntArrayAccess("a", 0), IntArrayAccess("a", 137))
+	Assign(ArrayAccess("a", 0), ArrayAccess("a", 42)),
+	Assign(ArrayAccess("a", 0), ArrayAccess("a", 137))
       ))
     ), Map.empty)
  
@@ -260,10 +260,10 @@ object TestExecution {
 
     // Test array aliasing
     println("")
-    test(new Memory(List(("a" -> IntArray(0, List(1, 0).toArray)))), List(
+    test(new Memory(List(("a" -> makeIntArray(0, List(1, 0))))), List(
       Assign("b", "a"),
-      Assign(IntArrayAccess("a", 0), 42),
-      Assert(EQ(IntArrayAccess("b", 0), 42))
+      Assign(ArrayAccess("a", 0), 42),
+      Assert(EQ(ArrayAccess("b", 0), 42))
     ), Map.empty)
 
     println("")
@@ -278,7 +278,7 @@ object TestExecution {
     ), mapOfPrograms(reverseProgram))
 
     println("")
-    test(new Memory(List(("a1" -> IntArray(0, List(3, 2, 4, 5, 1).toArray)), ("a2" -> IntArray(1, Nil.toArray)), ("a3" -> IntArray(2, List(42).toArray)))), List(
+    test(new Memory(List(("a1" -> makeIntArray(0, List(3, 2, 4, 5, 1))), ("a2" -> makeIntArray(1, Nil)), ("a3" -> makeIntArray(2, List(42))))), List(
       Call("selectionSort", List("a1")),
       Call("checkSorted", List("a1")),
       Call("selectionSort", List("a2")),
@@ -297,6 +297,29 @@ object TestExecution {
     test(new Memory, List(
       If(UnseenExpr(), List(Assert(false)), Nil, List(Assert(false)))
     ), Map.empty, Some((m, h) => h match { case _: Unseen => ErrorConstant case _ => throw new IllegalArgumentException }))
+
+    {
+      val emptyObj = Object(0, "Object", HashMap.empty)
+      var intArr = makeIntArray(0, List(0, 1, 2))
+      println("")
+      test(new Memory(List(
+	("o" -> emptyObj),
+	("intArr" -> intArr),
+	("boolArr" -> ArrayValue(1, Array(BooleanConstant(true), BooleanConstant(false)), BooleanType)),
+	("objArr" -> ArrayValue(2, Array(emptyObj, Object(1, "Pair", HashMap.empty ++ List(("x" -> IntConstant(1)), ("y" -> IntConstant(2)))), Null), ObjectType("Object"))),
+	("arrArr" -> ArrayValue(3, Array(intArr, makeIntArray(4, List(42, 137)), Null), ArrayType(ObjectType("Object")))),
+	("l" -> Object(2, "Ptr", HashMap.empty ++ List(("ptr" -> emptyObj)))),
+	("zero" -> IntConstant(0)),
+	("one" -> IntConstant(1)))), List(
+	  Call("swap", List("intArr", 0, 1)),
+	  Assign(ArrayAccess("objArr", 0), Null),
+	  Assign(ArrayAccess("arrArr", 2), "intArr"),
+	  Call("swap", List("objArr", 0, 1)),
+	  Call("swap", List("arrArr", 0, 1))
+	), mapOfPrograms(swapProgram))
+    }
+
+    println("")
 
   }
 

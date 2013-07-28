@@ -4,7 +4,6 @@ object AST {
 
   import scala.collection.mutable.{ Map => MMap }
 
-  // TODO: Arrays are borked: I hardcode IntArray in many places (including in access).
   sealed trait Type
   sealed trait PrimitiveType extends Type
   case object ErrorType extends Type
@@ -31,8 +30,8 @@ object AST {
   case class BooleanConstant(b: Boolean) extends Primitive
   case class StringConstant(s: String) extends Primitive
   sealed trait HeapValue extends Value
-  case class IntArray(id: Int, array: Array[Int]) extends HeapValue {
-    override def equals(o: Any) = o match { case IntArray(id2, _) => id == id2 case _ => false }
+  case class ArrayValue(id: Int, array: Array[Value], elemType: Type) extends HeapValue {
+    override def equals(o: Any) = o match { case ArrayValue(id2, _, _) => id == id2 case _ => false }
     override def hashCode: Int = id.hashCode
   }
   case class Object(id: Int, typ: String, fields: MMap[String, Value]) extends HeapValue {
@@ -45,7 +44,7 @@ object AST {
   sealed trait Expr extends Action
   sealed trait LVal extends Expr
   case class Var(name: String) extends LVal
-  case class IntArrayAccess(array: Expr, index: Expr) extends LVal
+  case class ArrayAccess(array: Expr, index: Expr) extends LVal
   case class FieldAccess(obj: Expr, field: String) extends LVal
   case class ArrayLength(e: Expr) extends Expr
   case class ObjectID(id: Int) extends Expr

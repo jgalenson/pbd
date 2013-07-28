@@ -23,7 +23,7 @@ object Compiler {
       "ObjectID(" ~ wholeNumber ~ ")" ^^ { case _~id~_ => ObjectID(id.toInt) }
 
     lazy val lval: PackratParser[LVal] =
-      lval ~ "[" ~ expr ~ "]" ^^ { case a~_~i~_ => IntArrayAccess(a, i) } |  // TODO-bug: lval here, below, and in length should be expr
+      lval ~ "[" ~ expr ~ "]" ^^ { case a~_~i~_ => ArrayAccess(a, i) } |  // TODO-bug: lval here, below, and in length should be expr
       lval ~ "." ~ identifier ^^ { case o~_~f => FieldAccess(o, f) } |
       identifier ^^ { case s => Var(s.toString) }
 

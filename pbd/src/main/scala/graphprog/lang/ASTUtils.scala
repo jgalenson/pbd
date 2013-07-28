@@ -26,7 +26,7 @@ protected[graphprog] class Printer(helpers: PartialFunction[String, Value => Str
     case AssertFailed => "assert failed"
     case BreakHit => "break hit"
     case UnitConstant => "()"
-    case IntArray(_, array) => "Array(" + iterableToString(array, ",") + ")"
+    case ArrayValue(_, array, _) => "Array(" + iterableToString(array, ",", (v: Value) => stringOfValue(v, seen)) + ")"
     case o @ Object(id, t, m) => 
       if (helpers isDefinedAt t)
 	helpers(t)(v)
@@ -36,7 +36,7 @@ protected[graphprog] class Printer(helpers: PartialFunction[String, Value => Str
     case Null => "null"
   }
   protected[graphprog] def stringOfExpr(e: Expr): String = {
-    // Helper so that we use parenthses to show precedence.
+    // Helper so that we use parentheses to show precedence.
     def stringOfOperand(o: Expr): String = o match {
       case _: BinaryOp => "(" + stringOfExpr(o) + ")"
       case _ => stringOfExpr(o)
@@ -45,7 +45,7 @@ protected[graphprog] class Printer(helpers: PartialFunction[String, Value => Str
       case v: Value => stringOfValue(v)
       case h: Hole => stringOfHole(h)
       case Var(name) => name
-      case IntArrayAccess(array, index) => stringOfExpr(array) + "[" + stringOfExpr(index) + "]"
+      case ArrayAccess(array, index) => stringOfExpr(array) + "[" + stringOfExpr(index) + "]"
       case FieldAccess(obj, field) => stringOfExpr(obj) + "." + field
       case ArrayLength(e) => stringOfExpr(e) + ".length"
       case ObjectID(id) => "ObjectID(" + id.toString + ")"
@@ -152,6 +152,7 @@ protected[graphprog] class Typer(functions: Map[String, Program], objectTypes: M
   protected[graphprog] def typeOfExpr(e: Expr, memory: Memory): Type = e match {
     case Var(name) => typeOfValue(memory(name))
     case FieldAccess(o, f) => objectTypes(typeOfExpr(o, memory).asInstanceOf[ObjectType].name).toMap.get(f).get
+    case ArrayAccess(array, _) => typeOfExpr(array, memory).asInstanceOf[ArrayType].t
     case ObjectID(id) => typeOfValue(memory.getObject(id).get)
     case ArrayID(id) => typeOfValue(memory.getArray(id).get)
     case LiteralExpr(e) => typeOfExpr(e, memory)
@@ -159,7 +160,6 @@ protected[graphprog] class Typer(functions: Map[String, Program], objectTypes: M
   }
   private def typeOfExprNoMemory(e: Expr): Type = e match {
     case v: Value => typeOfValue(v)
-    case IntArrayAccess(_, _) => IntType
     case ArrayLength(_) => IntType
     case Call(name, _) => functions(name).typ
     case In(_, range) => IntType
@@ -216,7 +216,7 @@ protected[graphprog] object Typer {
   def typeOfValue(v: Value): Type = v match {
     case ErrorConstant => ErrorType
     case UnitConstant => UnitType
-    case IntArray(_, _) => ArrayType(IntType)
+    case ArrayValue(_, _, elemType) => ArrayType(elemType)
     case IntConstant(_) => IntType
     case BooleanConstant(_) => BooleanType
     case StringConstant(_) => StringType
@@ -252,7 +252,7 @@ protected[graphprog] object Typer {
       case AssertFailed => name("Assert Failed")
       case BreakHit => name("Break Hit")
       case UnitConstant => name("()")
-      case IntArray(_, array) => arrows(name("IntArray"), array map { n => name(n.toString) }: _*)
+      case ArrayValue(_, array, _) => arrows(name("Array"), array map { n => name(n.toString) }: _*)
       case IntConstant(n) => name(n.toString)
       case BooleanConstant(b) => name(b.toString)
       case StringConstant(s) => name(s)
@@ -263,7 +263,7 @@ protected[graphprog] object Typer {
       case v: Value => valueToGraphviz(v)
       case h: Hole => holeToGraphviz(h)
       case Var(v) => arrow(name("Var"), name(v))
-      case IntArrayAccess(a, index) => arrows(name("IntArrayAccess"), exprToGraphviz(a), exprToGraphviz(index)) 
+      case ArrayAccess(a, index) => arrows(name("ArrayAccess"), exprToGraphviz(a), exprToGraphviz(index)) 
       case FieldAccess(obj, field) => arrows(name("FieldAccess"), exprToGraphviz(obj), name(field))
       case ArrayLength(e) => arrow(name("ArrayLength"), exprToGraphviz(e))
       case ObjectID(id) => name("Object " + id)
@@ -349,7 +349,7 @@ object ASTUtils {
    */
   protected[graphprog] def areEqual(v1: Value, v2: Value, checkFields: Boolean, checkArrays: Boolean, seenObjectIDs: MSet[(Int, Int)] = MSet[(Int, Int)]()): Boolean = (v1, v2) match {
     case (Object(id1, _, f1), Object(id2, _, f2)) => id1 == id2 && (!checkFields || seenObjectIDs.contains((id1, id2)) || mapsAreEqual(f1, f2, (x: Value, y: Value) => areEqual(x, y, checkFields, checkArrays, seenObjectIDs += ((id1, id2)))))
-    case (IntArray(id1, a1), IntArray(id2, a2)) => id1 == id2 && (!checkArrays || (a1.length == a2.length && a1.toList == a2.toList))
+    case (ArrayValue(id1, a1, t1), ArrayValue(id2, a2, t2)) => id1 == id2 && t1 == t2 && (!checkArrays || (a1.length == a2.length && a1.toList == a2.toList))
     case (_, _) => v1 == v2
   }
 
@@ -377,7 +377,7 @@ object ASTUtils {
     getParentsForStmts(code, None, Map.empty) 
   }
 
-  protected[graphprog] def diffMemories(memory: Memory, newMemory: Memory): (Map[String, Value], Map[(Int, String), Value], Map[(Int, Int), Int]) = {
+  protected[graphprog] def diffMemories(memory: Memory, newMemory: Memory): (Map[String, Value], Map[(Int, String), Value], Map[(Int, Int), Value]) = {
     // TODO-bug: I should really track all assigns here.  If we execute an assignment that assigns to the current value, I don't currently catch that.
     val oldKeySet = memory.keys.toSet
     val (oldObjectMap, oldArrayMap) = memory.getObjectsAndArrays()

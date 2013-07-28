@@ -13,17 +13,17 @@ protected[test] object TestCommon {
   implicit def int2IntConstant(n: Int) = IntConstant(n)
   implicit def boolean2BooleanConstant(b: Boolean) = BooleanConstant(b)
 
-  val swapProgram = Program("swap", UnitType, List(("a", ArrayType(IntType)), ("i1", IntType), ("i2", IntType)), Map.empty, Map.empty, List(Assign("tmp", IntArrayAccess("a", "i1")), Assign(IntArrayAccess("a", "i1"), IntArrayAccess("a", "i2")), Assign(IntArrayAccess("a", "i2"), "tmp"), UnitConstant))
+  val swapProgram = Program("swap", UnitType, List(("a", ArrayType(IntType)), ("i1", IntType), ("i2", IntType)), Map.empty, Map.empty, List(Assign("tmp", ArrayAccess("a", "i1")), Assign(ArrayAccess("a", "i1"), ArrayAccess("a", "i2")), Assign(ArrayAccess("a", "i2"), "tmp"), UnitConstant))
   val answerProgram = Program("answer", IntType, Nil, Map.empty, Map.empty, List(42))
   val timesthreeProgram = Program("timesthree", IntType, List(("x", IntType)), Map.empty, Map.empty, List(Times("x", 3)))
   val fibProgram = Program("fib", IntType, List(("n", IntType)), Map.empty, Map.empty, List(If(LT("n", 2), List("n"), Nil, List(Plus(Call("fib", List(Minus("n", 1))), Call("fib", List(Minus("n", 2))))))))
   val factProgram = Program("fact", IntType, List(("n", IntType)), Map.empty, Map.empty, List(If(LE("n", 1), List(1), Nil, List(Times("n", Call("fact", List(Minus("n", 1))))))))
   val sumProgram = Program("sum", IntType, List(("x", IntType), ("y", IntType)), Map.empty, Map.empty, List(Plus("x", "y")))
-  val checkSortedProgram = Program("checkSorted", UnitType, List(("a", ArrayType(IntType))), Map.empty, Map.empty, List( Loop(In("i", Until(0, Minus(ArrayLength("a"), 1))), List(Assert(LE(IntArrayAccess("a", "i"), IntArrayAccess("a", Plus("i", 1)))))) ))
-  val containsProgram = Program("contains", BooleanType, List(("a", ArrayType(IntType)), ("x", IntType)), Map.empty, Map.empty, List( Assign("found", false), Loop(In("i", Until(0, ArrayLength("a"))), List(If(EQ(IntArrayAccess("a", "i"), "x"), List(Assign("found", true), Break), Nil, Nil))), "found" ))
+  val checkSortedProgram = Program("checkSorted", UnitType, List(("a", ArrayType(IntType))), Map.empty, Map.empty, List( Loop(In("i", Until(0, Minus(ArrayLength("a"), 1))), List(Assert(LE(ArrayAccess("a", "i"), ArrayAccess("a", Plus("i", 1)))))) ))
+  val containsProgram = Program("contains", BooleanType, List(("a", ArrayType(IntType)), ("x", IntType)), Map.empty, Map.empty, List( Assign("found", false), Loop(In("i", Until(0, ArrayLength("a"))), List(If(EQ(ArrayAccess("a", "i"), "x"), List(Assign("found", true), Break), Nil, Nil))), "found" ))
   val lengthProgram = Program("length", IntType, List(("list", ObjectType("Node"))), Map.empty, Map.empty, List( If(EQ("list", Null), List(0), Nil, List(Plus(Call("length", List(FieldAccess("list", "next"))), 1))) ))
   val reverseProgram = Program("reverse", ObjectType("Node"), List(("list", ObjectType("Node"))), Map.empty, Map.empty, List( Assign("cur", "list"), Assign("prev", Null), Loop(NE("cur", Null), List(UnorderedStmts(List(Assign(FieldAccess("cur", "next"), "prev"), Assign("cur", FieldAccess("cur", "next")), Assign("prev", "cur"))))), "prev" ))
-  val selectionSortProgram = Program("selectionSort", UnitType, List(("a", ArrayType(IntType))), mapOfPrograms(swapProgram), Map.empty, List( Loop(In("i", Until(0, Minus(ArrayLength("a"), 1))), List(Assign("min", "i"), Loop(In("j", Until(Plus("i", 1), ArrayLength("a"))), List(If(LT(IntArrayAccess("a", "j"), IntArrayAccess("a", "min")), List(Assign("min", "j")), Nil, Nil))), Call("swap", List("a", "i", "min")))) ))
+  val selectionSortProgram = Program("selectionSort", UnitType, List(("a", ArrayType(IntType))), mapOfPrograms(swapProgram), Map.empty, List( Loop(In("i", Until(0, Minus(ArrayLength("a"), 1))), List(Assign("min", "i"), Loop(In("j", Until(Plus("i", 1), ArrayLength("a"))), List(If(LT(ArrayAccess("a", "j"), ArrayAccess("a", "min")), List(Assign("min", "j")), Nil, Nil))), Call("swap", List("a", "i", "min")))) ))
 
   def mapOfPrograms(programs: Program*): Map[String, Program] = programs.map{ p => (p.name, p) }.toMap
 
@@ -154,8 +154,8 @@ protected[test] object TestCommon {
   val listComparator = Map.empty + ("Node" -> (compareLists _))
   val treeComparator = Map.empty ++ List(("Node" -> (compareBinaryTrees _)), ("Tree" -> (compareBinaryTreesTree _)))
 
-  def arrayAIsSorted(args: Map[String, Value], resMap: Map[String, Value], rv: Value): Boolean = {
-    val array = resMap("a").asInstanceOf[IntArray].array
+  def intArrayAIsSorted(args: Map[String, Value], resMap: Map[String, Value], rv: Value): Boolean = {
+    val array = resMap("a").asInstanceOf[ArrayValue].array.map{ n => n.asInstanceOf[IntConstant].n }
     holdsOverIterable(array, (n1: Int, n2: Int) => n1 <= n2)
   }
 
@@ -232,5 +232,7 @@ protected[test] object TestCommon {
       setRandomSeed(nextLong())
     new Options(dumpBackupData, loadBackupData, extraOptions.toList)
   }
+
+  protected[test] def makeIntArray(id: Int, elems: Iterable[Int]): ArrayValue = ArrayValue(id, elems.map{ n => IntConstant(n) }.toArray, IntType)
 
 }

@@ -94,13 +94,13 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	    assert(heads.size == 1 || (curFields.size <= 1 && curModArrs.size <= 1 && (isFirst || ((accFields.size > 0) == (curFields.size == 1) && (accModArrs.size > 0) == (curModArrs.size == 1)))))  // TODO: I currently allow snapshots in loops to write to at most one field/array.  This is artificial, but removing it is difficult, as it is not obvious which assignments from different iterations work together.
 	    (false, accVars ++ curVars.keys.toSet, accFields ++ curFields.keys.toSet, accModArrs ++ curModArrs.keys.toSet)
 	  }}
-	  val fullChanges = changes map { case (vars, fields, arrs) => (varLHS map { n => if (vars contains n) (n, vars(n)) else (n, Var(n)) }, fields map { case (k, v) => (k, v) }, arrs map { case (k, v) => (k, IntConstant(v)) }) }  // Note that we combine variable assignments but not fields/arrays.
+	  val fullChanges = changes map { case (vars, fields, arrs) => (varLHS map { n => if (vars contains n) (n, vars(n)) else (n, Var(n)) }, fields map { case (k, v) => (k, v) }, arrs map { case (k, v) => (k, v) }) }  // Note that we combine variable assignments but not fields/arrays.
 	  def getRealExpr(e: Expr): Expr = e match {
 	    case Object(id, _, _) => ObjectID(id)  // Use the current version of the object in case other changes have been made to it.
 	    case _ => e
 	  }
 	  // Convert to UnorderedStmts and recurse on those
-	  val stmts = fullChanges map { case (vars, fields, modArrs) => UnorderedStmts((vars.map{ case (n, v) => Assign(Var(n), getRealExpr(v)) } ++ fields.map { case ((id, f), v) => Assign(FieldAccess(ObjectID(id), f), getRealExpr(v)) } ++ modArrs.map{ case ((id, i), v) => Assign(IntArrayAccess(ArrayID(id), IntConstant(i)), v) }).toList) }
+	  val stmts = fullChanges map { case (vars, fields, modArrs) => UnorderedStmts((vars.map{ case (n, v) => Assign(Var(n), getRealExpr(v)) } ++ fields.map { case ((id, f), v) => Assign(FieldAccess(ObjectID(id), f), getRealExpr(v)) } ++ modArrs.map{ case ((id, i), v) => Assign(ArrayAccess(ArrayID(id), IntConstant(i)), v) }).toList) }
 	  return genProgramFromCompleteTracesRec(ast, stmts.zip(traces).map{ case (s, (_ :: rest, m)) => (s :: rest, m) case _ => throw new RuntimeException })
 	case _ => StmtEvidenceHole(heads)
       }
@@ -117,14 +117,15 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     val (_, l, u, arraySize) = bounds
     var id = 0
     def getID(): Int = { var cur = id; id += 1; cur }
-    def genRandom(inputs: List[(String, Type)]): List[(String, Value)] = inputs map { t => (t._1, t._2 match {
+    def genRandomValue(typ: Type): Value = typ match {
       case IntType => IntConstant(nextBoundedInt(l, u))
       case BooleanType => BooleanConstant(nextBoolean())
-      case ArrayType(IntType) => IntArray(getID(), (0 until nextInt(arraySize)).map{ _ => nextBoundedInt(l, u) }.toArray)
-      case ObjectType(typ) => if (nextFloat() < NULL_PROBABILITY) Null else Object(getID(), typ, Map.empty ++ genRandom(objectTypes(typ)))
-      case ArrayType(_) => throw new IllegalArgumentException("Cannot handle non-integer arrays.")
-    })}
-    genRandom(inputTypes)
+      case ArrayType(typ) => ArrayValue(getID(), (0 until nextInt(arraySize)).map{ _ => genRandomValue(typ) }.toArray, typ)
+      case ObjectType(typ) => if (nextFloat() < NULL_PROBABILITY) Null else Object(getID(), typ, Map.empty ++ genRandomValues(objectTypes(typ)))
+      case _ => throw new IllegalArgumentException("Cannot generate a random value of type " + typ.toString)
+    }
+    def genRandomValues(inputs: List[(String, Type)]): List[(String, Value)] = inputs map { t => (t._1, genRandomValue(t._2))}
+    genRandomValues(inputTypes)
   }
 
   private def findFirstRandomInput(inputSize: Double, successCond: Option[List[(String, Value)] => Boolean]): Option[List[(String, Value)]] = generator match {
@@ -255,7 +256,6 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     // TODO: Potentially I should modify this to not prefer things that can be constants (e.g. 0, 1, 2) since they can lead to more questions.
     def compareInputs(doSimpleObjectCheck: Boolean)(x: Iterable[Value], y: Iterable[Value]): Int = {
       def normalize(n: Int): Int = if (n < 0) -1 else if (n > 0) 1 else 0
-      def sumArray(a: Array[Int]): Int = a.foldLeft(0){ (acc, cur) => acc + math.abs(cur) }
       def sortFields(f: Map[String, Value]): Iterable[Value] = f.toList.sortBy{ _._1 }.map{ _._2 }
       def defaultCompareObjects(o1: Object, o2: Object): Int = {
 	def getObjects(v: Value, objects: Set[Int]): Set[Int] = v match {
@@ -278,7 +278,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	  else  // Prefer positive numbers over negative numbers.
 	    normalize(n2 - n1)
 	case (StringConstant(s1), StringConstant(s2)) => s1.size - s2.size
-	case (IntArray(_, a1), IntArray(_, a2)) => normalize(if (a1.size != a2.size) a1.size - a2.size else sumArray(a1) - sumArray(a2))
+	case (ArrayValue(_, a1, _), ArrayValue(_, a2, _)) => normalize(if (a1.size != a2.size) a1.size - a2.size else compareInputs(true)(a1, a2))
 	case (Null, Null) => 0
 	case (Null, Object(_, _, _)) => -1
 	case (Object(_, _, _), Null) => 1

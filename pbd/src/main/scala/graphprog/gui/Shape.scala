@@ -2,7 +2,7 @@ package graphprog.gui
 
 import java.awt.{ Color, Font, Graphics2D, Rectangle, Graphics, BasicStroke }
 import Shape._
-import graphprog.lang.AST.{ Null, Object, Primitive, IntArray, IntConstant, Value, Program, Expr, Var => ASTVar, LVal, Call, Assign, Action, FieldAccess, IntArrayAccess, ArrayLength, ObjectID, ArrayID, HeapValue, Type, PrimitiveType }
+import graphprog.lang.AST.{ Null, Object, Primitive, ArrayValue, IntConstant, Value, Program, Expr, Var => ASTVar, LVal, Call, Assign, Action, FieldAccess, ArrayAccess, ArrayLength, ObjectID, ArrayID, HeapValue, Type, PrimitiveType }
 import graphprog.lang.ASTUtils.stringOfPrimitive
 import graphprog.lang.{ Typer, Printer }
 import graphprog.Utils._
@@ -23,6 +23,7 @@ case class NullShape(id: Int, var x: Int, var y: Int, var width: Int, var height
   override def equals(o: Any) = o match { case NullShape(id2, _, _, _, _) => id == id2 case _ => false }  // Nulls need an id since all their other fields can change.
   override def hashCode: Int = id.hashCode
 }
+
 sealed abstract class Var extends Shape {
   val name: String
   override def hashCode: Int = name.hashCode  // All the other fields can change.
@@ -30,15 +31,12 @@ sealed abstract class Var extends Shape {
 sealed abstract class Val extends Shape {
   def data: Primitive
 }
-case class MVal(id: Int, var data: Primitive, var x: Int, var y: Int, var width: Int, var height: Int) extends Val {
-  override def hashCode: Int = id.hashCode  // All the other fields can change.
-}
 case class IVal(data: Primitive, var x: Int, var y: Int, var width: Int, var height: Int) extends Val {
   override def hashCode: Int = data.hashCode  // All the other fields can change.
 }
 case class Prim(name: String, var data: Option[Primitive], var x: Int, var y: Int, var width: Int, var height: Int) extends Var
 case class Pointer(name: String, arrow: Arrow, var x: Int, var y: Int, var width: Int, var height: Int) extends Var
-case class IntArr(data: IntArray, var x: Int, var y: Int, var width: Int, var height: Int) extends HeapObject {
+case class Arr(data: ArrayValue, var x: Int, var y: Int, var width: Int, var height: Int) extends HeapObject {
   override def hashCode: Int = data.hashCode  // We need to avoid loops for circular structures
 }
 case class Obj(data: Object, var x: Int, var y: Int, var width: Int, var height: Int) extends HeapObject {
@@ -59,8 +57,8 @@ sealed abstract class Child[T1 <: Shape,T2 <: Shape] extends Shape {
   override def hashCode: Int = child.hashCode
 }
 case class Field(child: Var, parent: Obj) extends Child[Var, Obj]
-case class IntArrAccess(child: MVal, index: Int, parent: IntArr) extends Child[MVal, IntArr]
-case class ArrLen(child: IVal, parent: IntArr) extends Child[IVal, IntArr]
+case class ArrAccess(child: Var, index: Int, parent: Arr) extends Child[Var, Arr]
+case class ArrLen(child: IVal, parent: Arr) extends Child[IVal, Arr]
 
 sealed abstract class Callable {
   def numInputs: Int
@@ -176,7 +174,7 @@ protected[gui] object Shape {
 	drawCentered(name, x, y, w, h)
 	if (!isShadow)
 	  drawArrow(g, arrow, arrowColorer)
-      case IntArr(_, x, y, w, h) =>
+      case Arr(_, x, y, w, h) =>
 	doRect(x, y, w, h)
 	getChildren(shape).foreach{ e => draw(g, e, getChildren, colorer, arrowColorer, isShadow) }
       case Obj(Object(id, _, fs), x, y, w, h) =>
@@ -235,11 +233,6 @@ protected[gui] object Shape {
     NullShape(lastID, x, y, w, h)
   }
 
-  def makeMVal(data: Primitive, x: Int, y: Int, w: Int, h: Int): MVal = {
-    lastID += 1
-    MVal(lastID, data, x, y, w, h)
-  }
-
   def makeArrow(srcX: Int, srcY: Int, srcW: Int, srcH: Int, dst: Option[Shape]): Arrow = {
     lastID += 1
     dst match {
@@ -258,25 +251,26 @@ protected[gui] object Shape {
 
   def widthOfVar(name: String, value: Value, g: Graphics): Int = value match {
     case p: Primitive => math.max(DEFAULT_WIDTH, math.max(stringWidth(g, name), stringWidth(g, stringOfPrimitive(p))))
-    case _: IntArray | _: Object | Null => math.max(DEFAULT_WIDTH, stringWidth(g, name))
+    case _: ArrayValue | _: Object | Null => math.max(DEFAULT_WIDTH, stringWidth(g, name))
   }
   def widthOfVal(value: Value, g: Graphics, fieldLayouts: IMap[String, List[List[String]]]): Int = value match {
     case p: Primitive => widthOfString(stringOfPrimitive(p), g)
-    case IntArray(_, array) => math.max(array.map{ v => widthOfVal(IntConstant(v), g, fieldLayouts) }.sum, widthOfString("length: " + array.length, g))
+    case ArrayValue(_, array, _) => math.max(array.map{ v => widthOfVar("", v, g) }.sum, widthOfString("length: " + array.length, g))
     case Object(_, _, fields) if fields.isEmpty => DEFAULT_WIDTH
     case Object(_, typ, fields) if fieldLayouts.contains(typ) => fieldLayouts(typ).map{ _.map{ f => widthOfVar(f, fields(f), g) + FIELD_PADDING }.sum }.max + FIELD_PADDING
     case Object(_, _, fields) => fields.map{ f => widthOfVar(f._1, f._2, g) }.max + 2 * FIELD_PADDING
+    case Null => DEFAULT_WIDTH
   }
   def widthOfProgram(p: Program, g: Graphics): Int = widthOfString(p.name, g)
   def widthOfString(s: String, g: Graphics): Int = math.max(DEFAULT_WIDTH, stringWidth(g, s))
 
   def heightOfVar(name: String, value: Value, g: Graphics): Int = value match {
-    case _: Primitive => DEFAULT_HEIGHT + g.getFontMetrics.getAscent() + g.getFontMetrics.getDescent()
-    case _: IntArray | _: Object | Null => DEFAULT_HEIGHT
+    case _: Primitive => DEFAULT_HEIGHT + { if (name.isEmpty) 0 else g.getFontMetrics.getAscent() + g.getFontMetrics.getDescent() }
+    case _: ArrayValue | _: Object | Null => DEFAULT_HEIGHT
   }
   def heightOfVal(value: Value, g: Graphics, fieldLayouts: IMap[String, List[List[String]]]): Int = value match {
     case p: Primitive => heightOfString(stringOfPrimitive(p), g)
-    case IntArray(_, array) => (if (array.size > 0) heightOfString("1", g) else 0) + heightOfString(array.length.toString, g)
+    case ArrayValue(_, array, _) => (if (array.nonEmpty) array.map{ v => heightOfVar("", v, g) }.max else 0) + heightOfString(array.length.toString, g)
     case Object(_, _, fields) if fields.isEmpty => DEFAULT_HEIGHT
     case Object(_, typ, fields) if fieldLayouts.contains(typ) => fieldLayouts(typ).map{ _.map{ f => heightOfVar(f, fields(f), g) }.max + FIELD_PADDING }.sum + FIELD_PADDING
     case Object(_, _, fields) if fields.nonEmpty => fields.foldLeft(FIELD_PADDING){ (acc, cur) => acc + heightOfVar(cur._1, cur._2, g) + FIELD_PADDING }
@@ -284,7 +278,7 @@ protected[gui] object Shape {
   def heightOfProgram(p: Program, g: Graphics): Int = heightOfString(p.name, g)
   def heightOfString(s: String, g: Graphics): Int = DEFAULT_HEIGHT
 
-  def stringWidth(g: Graphics, s: String): Int = g.getFontMetrics().stringWidth(s) + 2 * TEXT_PADDING
+  def stringWidth(g: Graphics, s: String): Int = if (s.isEmpty) 0 else g.getFontMetrics().stringWidth(s) + 2 * TEXT_PADDING
 
   def moveShape(shape: Shape, dx: Int, dy: Int, getChildren: Shape => Iterable[Shape], getArrowsTo: Shape => Iterable[Arrow], getArrowsFrom: Shape => Iterable[Arrow]): Unit = {
     getChildren(shape).foreach{ e => moveShape(e, dx, dy, getChildren, getArrowsTo, getArrowsFrom) }
@@ -301,12 +295,11 @@ protected[gui] object Shape {
     if (!shapeToValue.isDefinedAt(rhs))
       return false
     def canReceive(lhs: Shape): Boolean = lhs match {
-      case MVal(_, data, _, _, _, _) => !isExpr && typer.canAssign(data, shapeToValue(rhs))
       case Prim(_, Some(data), _, _, _, _) => !isExpr && typer.canAssign(data, shapeToValue(rhs))
       case Prim(_, None, _, _, _, _) => !isExpr && typer.typeOfValue(shapeToValue(rhs)).isInstanceOf[PrimitiveType]
       case Pointer(_, Arrow(_, target, _, _, _, _, _), _, _, _, _) => !isExpr && typer.canAssign(shapeToValue(target), shapeToValue(rhs))
       case Field(f, _) => !isExpr && canReceive(f)
-      case IntArrAccess(e, _, _) => !isExpr && canReceive(e)
+      case ArrAccess(e, _, _) => !isExpr && canReceive(e)
       case FuncCall(Prog(prog), argArrows, None, _, _, _, _, _, _, _) if argArrows.size < prog.inputs.size => typer.canAssign(prog.inputs(argArrows.size)._2, shapeToValue(rhs))
       case FuncCall(_: BinaryOp, List(a), None, _, _, _, _, _, _, _) => typer.canAssign(shapeToValue(a.target), shapeToValue(rhs))  // Binary ops can be generic (like =), so use the type of the lhs if we have it.
       case FuncCall(op: Op, argArrows, None, _, _, _, _, _, _, _) if argArrows.size < op.numInputs => typer.canAssign(op.getArgTypes()(argArrows.size), shapeToValue(rhs))
@@ -325,7 +318,6 @@ protected[gui] object Shape {
 	case FuncCall(_, _, Some(result), _, _, _, _, _, _, _) => result.asInstanceOf[Primitive]
       }
       lhs match {
-	case v: MVal => v.data = getPrimitive(rhs)
 	case p: Prim => p.data = Some(getPrimitive(rhs))
 	case Pointer(_, a @ Arrow(_, oldTarget, _, _, _, _, _), x, y, w, h) =>
 	  val newTarget = (rhs: @unchecked) match {
@@ -333,6 +325,7 @@ protected[gui] object Shape {
 	    case s: HeapObject => Some(s)
 	    case Pointer(_, Arrow(_, target, _, _, _, _, _), _, _, _, _) => target
 	    case Field(Pointer(_, Arrow(_, target, _, _, _, _, _), _, _, _, _), _) => target
+	    case ArrAccess(Pointer(_, Arrow(_, target, _, _, _, _, _), _, _, _, _), _, _) => target
 	    case FuncCall(_, _, _, Some(Arrow(_, target @ Some(_: HeapObject), _, _, _, _, _)), _, _, _, _, _, _) => target
 	  }
 	  updateArrow(a, x, y, w, h, newTarget)
@@ -342,8 +335,8 @@ protected[gui] object Shape {
 	case Field(field, Obj(Object(_, _, fields), _, _, _, _)) =>
 	  fields(field.name) = shapeToValue(rhs)
 	  updateGUIWithAssignment(field, rhs)
-	case IntArrAccess(e, i, IntArr(IntArray(_, array), _, _, _, _)) =>
-	  array(i) = shapeToValue(rhs).asInstanceOf[IntConstant].n
+	case ArrAccess(e, i, Arr(ArrayValue(_, array, _), _, _, _, _)) =>
+	  array(i) = shapeToValue(rhs)
 	  updateGUIWithAssignment(e, rhs)
 	case s => throw new IllegalArgumentException(s.toString)
       }
@@ -367,7 +360,7 @@ protected[gui] object Shape {
     case v: Val => v.data
     case Prim(_, Some(d), _, _, _, _) => d
     case Pointer(_, Arrow(_, target, _, _, _, _, _), _, _, _, _) => shapeToValue(target)
-    case IntArr(arr, _, _, _, _) => arr
+    case Arr(arr, _, _, _, _) => arr
     case Obj(o, _, _, _, _) => o
     case c: Child[_, _] => shapeToValue(c.child)
     case FuncCall(_, _, Some(result), _, _, _, _, _, _, _) => result
@@ -377,19 +370,19 @@ protected[gui] object Shape {
     case Some(s) => shapeToExpr(s)
   }
   def shapeToExpr(shape: Shape): Expr = shape match {
-    case ArrLen(_, IntArr(a, _, _, _, _)) => ArrayLength(a)
+    case ArrLen(_, Arr(a, _, _, _, _)) => ArrayLength(a)
     case FuncCall(Prog(f), argArrows, _, _, _, _, _, _, _, _) if argArrows.size == f.inputs.size => Call(f.name, argArrows.map{ a => shapeToExpr(a.target) }.toList)
     case FuncCall(UnaryOp(_, op, _), List(a), _, _, _, _, _, _, _, _) => op(shapeToExpr(a.target))
     case FuncCall(BinaryOp(_, op, _), List(a1, a2), _, _, _, _, _, _, _, _) => op(shapeToExpr(a1.target), shapeToExpr(a2.target))
     case FuncCall(op: ConcreteOp, _, _, _, _, _, _, _, _, _) => op.e
-    case IntArr(IntArray(id, _), _, _, _, _) => ArrayID(id)
+    case Arr(ArrayValue(id, _, _), _, _, _, _) => ArrayID(id)
     case Obj(Object(id, _, _), _, _, _, _) => ObjectID(id)  // If we returned the object directly, executing a call would modify the object directly.
     case _ => (shapeToLVal orElse shapeToValue)(shape)
   }
   private val shapeToLVal: PartialFunction[Shape, LVal] = {
     case v: Var => ASTVar(v.name)
     case Field(field, Obj(Object(id, _, _), _, _, _, _)) => FieldAccess(ObjectID(id), field.name)  // As above in shapeToExpr, we return a reference to the object and not the object itself since it is only a copy of the real object in the synthesizer.
-    case IntArrAccess(_, i, IntArr(IntArray(id, _), _, _, _, _)) => IntArrayAccess(ArrayID(id), IntConstant(i))
+    case ArrAccess(_, i, Arr(ArrayValue(id, _, _), _, _, _, _)) => ArrayAccess(ArrayID(id), IntConstant(i))
   }
 
   def makeCallArrow(x: Int, y: Int, w: Int, numArgs: Int, target: Option[Shape], i: Int, pointees: Map[Option[Shape], Set[Arrow]]): Arrow = {

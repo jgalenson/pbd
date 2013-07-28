@@ -14,14 +14,14 @@ import scala.collection.{ Map => TMap }
 // TODO: Improve layout.  Maybe remove code from createShape and instead add a new function that movies things that have been created (and call it after creating all of them).
 protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFunctions: IMap[String, Program], private val objectTypes: IMap[String, List[(String, Type)]], private val objectComparators: IMap[String, (Value, Value) => Int], private val fieldLayouts: IMap[String, List[List[String]]], private val objectLayouts: IMap[String, ObjectLayout]) extends JPanel {
 
-  import graphprog.lang.AST.{ Action, IntArray, IntConstant, Null, Object, Primitive, Value, Assign, Var => ASTVar, Call, HeapValue, Expr, Stmt, Iterate, Loop, BooleanConstant }
+  import graphprog.lang.AST.{ Action, ArrayValue, IntConstant, Null, Object, Primitive, Value, Assign, Var => ASTVar, Call, HeapValue, Expr, Stmt, Iterate, Loop, BooleanConstant }
   import graphprog.lang.{ Printer, Executor, Typer, Memory }
   import java.awt.event.{ MouseAdapter, MouseEvent, MouseMotionAdapter, MouseWheelListener, MouseWheelEvent }
   import scala.annotation.tailrec
 
   private val variables = Map.empty[String, Var]
   private val objects = Map.empty[Int, Obj]
-  private val arrays = Map.empty[Int, IntArr]
+  private val arrays = Map.empty[Int, Arr]
   private val nulls = ListBuffer.empty[NullShape]
   private def toplevelShapes = variables.valuesIterator ++ objects.valuesIterator ++ arrays.valuesIterator ++ newDiffShapes.toIterator ++ nulls.toIterator ++ modeShapes ++ (held match {
     case Mutation(s) => Iterator.single(s)
@@ -42,16 +42,16 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     case _ => Iterator.empty
   }
   private def getHeapShape(value: HeapValue): HeapObject = value match {
-    case IntArray(id, _) => arrays(id)
+    case ArrayValue(id, _, _) => arrays(id)
     case Object(id, _, _) => objects(id)
     case Null => nulls.head
   }
   private val fields = Map.empty[Int, Map[String, Field]]
-  private val arrElems = Map.empty[Int, List[IntArrAccess]]
+  private val arrElems = Map.empty[Int, List[ArrAccess]]
   private val arrLens = Map.empty[Int, ArrLen]
   private def getChildren(shape: Shape): Iterable[Shape] = shape match {
     case Obj(Object(id, _, _), _, _, _, _) => fields(id).values
-    case IntArr(IntArray(id, _), _, _, _, _) => arrLens(id) :: arrElems(id)
+    case Arr(ArrayValue(id, _, _), _, _, _, _) => arrLens(id) :: arrElems(id)
     case _ => Nil
   }
   private def allShapes = toplevelShapes.toList flatMap { shape => getChildren(shape) ++ List(shape) }
@@ -413,7 +413,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
   }
   private def getAllBounds(shape: Shape): Iterable[Rectangle] = List(boundsOfShape(shape)) ++ getArrowsTo(shape).map(boundsOfArrow) ++ (shape match {
     case src @ Pointer(_, a, _, _, _, _) => List(boundsOfArrow(a))
-    case shape @ IntArr(IntArray(id, _), _, _, _, _) => (arrLens(id) :: arrElems(id)).flatMap{ f => getAllBounds(f.child) }  // We check the children since calls might point to them.
+    case shape @ Arr(ArrayValue(id, _, _), _, _, _, _) => (arrLens(id) :: arrElems(id)).flatMap{ f => getAllBounds(f.child) }  // We check the children since calls might point to them.
     case shape @ Obj(Object(id, _, fs), _, _, _, _) => fields(id).values.flatMap{ f => getAllBounds(f.child) ++ getArrowsFrom(f).map(boundsOfArrow) }  // We check the children since some might be pointers with arrows.
     case call @ FuncCall(_, _, _, _, _, _, _, _, _, true) => call.getAllArrows().map{ arrow => boundsOfArrow(arrow) }
     case c: Child[_, _] => getAllBounds(c.parent)
@@ -597,7 +597,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
       objects -= id
       fields -= id
       pointees -= Some(shape)
-    case shape @ IntArr(IntArray(id, _), _, _, _, _) =>
+    case shape @ Arr(ArrayValue(id, _, _), _, _, _, _) =>
       arrays -= id
       arrElems -= id
       arrLens -= id
@@ -616,7 +616,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     val (newX, newY) = if (canMove) findLocation(x, y, w, h, true) else (x, y)
     value match {
       case p: Primitive => Prim(name, Some(p), newX, newY, w, h)
-      case a: IntArray => createPointer(name, Some(createArrShape(g, a, newX + w + OBJECT_SPACING, newY)), newX, newY, w, h)
+      case a: ArrayValue => createPointer(name, Some(createArrShape(g, a, newX + w + OBJECT_SPACING, newY)), newX, newY, w, h)
       case o: Object => createPointer(name, Some(createObjShape(g, o, newX + w + OBJECT_SPACING, newY)), newX, newY, w, h)
       case Null => createPointer(name, None, newX, newY, w, h)
     }
@@ -631,24 +631,33 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     pointees.getOrElseUpdate(arrow.target, Set()) += arrow
     arrowSources += arrow -> pointer
   }
-  private def createArrShape(g: Graphics, array: IntArray, x: Int, y: Int): IntArr = arrays.getOrElseUpdate(array.id, {
+  private def createArrShape(g: Graphics, array: ArrayValue, x: Int, y: Int): Arr = {
+    if (arrays.contains(array.id))  // We can't use getOrElseUpdate case because we need to separate array and element creation for cyclic arrays.
+      return arrays(array.id)
     val (w, h) = (widthOfVal(array, g, fieldLayouts), heightOfVal(array, g, fieldLayouts))
-    val (newX, newY) = findLocation(x, y, w, h, false)
-    val aShape = IntArr(array, newX, newY, w, h)
-    val childShapes = array.array.foldLeft((List[IntArrAccess](), 0, newX)){ case ((acc, i, curX), n) => {
-      val cur = IntConstant(n)
-      val curShape = IntArrAccess(makeMVal(cur, curX, newY, widthOfVal(cur, g, fieldLayouts), heightOfVal(cur, g, fieldLayouts)), i, aShape)
+    val aShape = {
+      val (newX, newY) = findLocation(x, y, w, h, false)
+      Arr(array, newX, newY, w, h)
+    }
+    arrays += (array.id -> aShape)
+    val childShapes = array.array.foldLeft((List[ArrAccess](), 0, aShape.x)){ case ((acc, i, curX), cur) => {
+      val varShape = createVarShape(g, "", cur, curX, aShape.y)
+      val curShape = ArrAccess(varShape, i, aShape)
+      varShape match {
+	case Pointer(_, a, _, _, _, _) => arrowSources += a -> curShape
+	case _ =>
+      }
       (curShape :: acc, i + 1, curX + curShape.width)
     }}._1.reverse
     arrElems += array.id -> childShapes
     val len = IntConstant(array.array.length)
-    val lenY = if (array.array.isEmpty) newY else newY + heightOfVal(childShapes.head.child.data, g, fieldLayouts)
-    val lenShape = ArrLen(IVal(len, newX, lenY, w, heightOfVal(len, g, fieldLayouts)), aShape)
+    val lenY = if (array.array.isEmpty) aShape.y else aShape.y + childShapes.map{ _.height }.max
+    val lenShape = ArrLen(IVal(len, aShape.x, lenY, w, heightOfVal(len, g, fieldLayouts)), aShape)
     arrLens += array.id -> lenShape
     aShape
-  })
+  }
   private def createObjShape(g: Graphics, obj: Object, x: Int, y: Int): Obj = {
-    if (objects contains obj.id)  // We can't use getOrElseUpdate like in the array case because we need to separate object and field creation for cyclic objects.
+    if (objects contains obj.id)  // We can't use getOrElseUpdate case because we need to separate object and field creation for cyclic objects.
       return objects(obj.id)
     val (w, h) = (widthOfVal(obj, g, fieldLayouts), heightOfVal(obj, g, fieldLayouts))
     val oShape = {
@@ -680,11 +689,10 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	return
       updated += shape
       (shape, value) match {
-	case (v: MVal, p: Primitive) => v.data = p
 	case (prim: Prim, p: Primitive) => prim.data = Some(p)
 	case (p @ Pointer(_, a @ Arrow(_, oldTarget, _, _, _, _, _), _, _, _, _), _) =>
 	  val newTarget = value match {  // It might point to something new, which we have to create.
-	    case a @ IntArray(id, _) => Some(arrays.getOrElse(id, createArrShape(g, a, p.x + p.width + OBJECT_SPACING, p.y)))
+	    case a @ ArrayValue(id, _, _) => Some(arrays.getOrElse(id, createArrShape(g, a, p.x + p.width + OBJECT_SPACING, p.y)))
 	    case o @ Object(id, _, _) => Some(objects.getOrElse(id, createObjShape(g, o, p.x + p.width + OBJECT_SPACING, p.y)))
 	    case Null => None
 	  }
@@ -695,14 +703,14 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	    updateArrow(a, p.x, p.y, p.width, p.height, newTarget)
 	  }
 	  newTarget.foreach{ newTarget => updateShape(newTarget, value) }
-	case (IntArr(IntArray(id1, array1), _, _, _, _), IntArray(id2, array2)) =>
+	case (Arr(ArrayValue(id1, array1, _), _, _, _, _), ArrayValue(id2, array2, _)) =>
 	  assert(id1 == id2)
 	  for (i <- 0 until array2.length)  // As below in the object case, we need to freshen the shape's data, since executing a call in trace mode makes a copy of the array.
 	    array1(i) = array2(i)
-	  arrElems(id1).zip(array1).foreach{ case (shape, value) => updateShape(shape, IntConstant(value)) }
+	  arrElems(id1).zip(array1).foreach{ case (shape, value) => updateShape(shape, value) }
 	case (Obj(Object(id1, _, f1), _, _, _, _), Object(id2, _, f2)) =>
 	  assert(id1 == id2)
-	  f2.foreach{ kv => f1 += kv._1 -> (kv._2 match { case Object(id, _, _) => assert(objects contains id, id + ", " + iterableToString(objects, "; ", (kv: (Int, Obj)) => kv._1 + " -> " + printer.stringOfValue(kv._2.data))); objects(id).data case IntArray(id, _) => arrays(id).data case v => v }) }  // We copy the object's fields into the shape so the shape is fresh.  We need this since executing calls in trace mode produces a cloned object distinct and newer than the shape's object.  But note that we cannot copy over f2's values directly since they might refer to cloned objects and arrays.  In this case, we make sure to use our version.
+	  f2.foreach{ kv => f1 += kv._1 -> (kv._2 match { case Object(id, _, _) => assert(objects contains id, id + ", " + iterableToString(objects, "; ", (kv: (Int, Obj)) => kv._1 + " -> " + printer.stringOfValue(kv._2.data))); objects(id).data case ArrayValue(id, _, _) => arrays(id).data case v => v }) }  // We copy the object's fields into the shape so the shape is fresh.  We need this since executing calls in trace mode produces a cloned object distinct and newer than the shape's object.  But note that we cannot copy over f2's values directly since they might refer to cloned objects and arrays.  In this case, we make sure to use our version.
 	  f2.foreach{ kv => updateShape(fields(id1)(kv._1), kv._2) }  // This must be f2 and not f1, since f1's rhs are ours, which might not have their changes.
 	case (c: Child[_, _], _) => updateShape(c.child, value, false)
 	case (_: NullShape, Null) =>
@@ -853,7 +861,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	  val data = shapeToValue(target)
 	  updateWH(widthOfVar(name, data, g), heightOfVar(name, data, g))
 	  updateArrow(a, shape.x, shape.y, shape.width, shape.height, target)
-	case shape @ IntArr(a @ IntArray(id, _), _, _, _, _) =>
+	case shape @ Arr(a @ ArrayValue(id, _, _), _, _, _, _) =>
 	  updateWH(widthOfVal(a, g, fieldLayouts), heightOfVal(a, g, fieldLayouts))
 	  val len = arrLens(id)
 	  len.x = shape.x
@@ -990,7 +998,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
   // TODO: Sort newly-created shapes so that they always appear in the same order (e.g. so we can't have two questions with the same answers with the orders reversed, e.g. true above false then false above true).
   def setPossibilities(possibilities: List[Action]): Unit = setPossibilities(possibilities, makeMemory(), getGraphics().asInstanceOf[Graphics2D])
   private def setPossibilities(possibilities: List[Action], mem: Memory, g: Graphics2D): Unit = {
-    import graphprog.lang.AST.{ Expr, IntArrayAccess, FieldAccess, ArrayLength, Call, LVal }
+    import graphprog.lang.AST.{ Expr, ArrayAccess, FieldAccess, ArrayLength, Call, LVal }
     val newModeVars = Map.empty[String, Var]
     val newPrimitives = Map.empty[Primitive, Shape]
     val newCalls = Map.empty[(String, List[Expr]), Shape]
@@ -1010,7 +1018,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	case Object(id, _, _) =>
 	  assert(objects contains id)
 	  objects(id)
-	case IntArray(id, _) =>
+	case ArrayValue(id, _, _) =>
 	  assert(arrays contains id)
 	  arrays(id)
 	case ASTVar(name) =>
@@ -1024,13 +1032,13 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	    assert(variables contains name, variables.toString + " does not contain " + name)
 	    handleVar(variables(name))
 	  }
-	case IntArrayAccess(IntArray(id, _), IntConstant(index)) =>
+	case ArrayAccess(ArrayValue(id, _, _), IntConstant(index)) =>
 	  assert(arrays contains id)
 	  arrElems(id)(index)
 	case FieldAccess(Object(id, _, _), field) =>
 	  assert(objects contains id)
 	  handleVar(fields(id)(field))
-	case ArrayLength(IntArray(id, _)) =>
+	case ArrayLength(ArrayValue(id, _, _)) =>
 	  assert(arrays contains id)
 	  arrLens(id)
 	case Call(name, args) =>
@@ -1055,7 +1063,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
       case e: Expr => partiallyEvaluateExpr(e)
     }*/
     def partiallyEvaluateExpr(e: Expr): Expr = e match {
-      case IntArrayAccess(array, index) => IntArrayAccess(executor.evaluate(mem, array), executor.evaluate(mem, index))
+      case ArrayAccess(array, index) => ArrayAccess(executor.evaluate(mem, array), executor.evaluate(mem, index))
       case FieldAccess(obj, field) =>
 	val o = executor.evaluate(mem, obj)
 	assert(o.isInstanceOf[Object], e.toString + ", " + o.toString + ": " + o.getClass.getName)
@@ -1216,7 +1224,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
   // TODO/FIXME: Here (and in AST and friends) add ++ so I can increment vars more easily and without using a constant 1 that could be a standin.
   // TODO: I currently do exprs by default (see Control.scala).  Should I really do that?
   def addAction(a: Action, shouldDoExpr: Boolean): Boolean = {
-    import graphprog.lang.AST.{ BinaryOp, Not, IntArrayAccess, FieldAccess, ArrayLength, ObjectID, ArrayID, Range, In }
+    import graphprog.lang.AST.{ BinaryOp, Not, ArrayAccess, FieldAccess, ArrayLength, ObjectID, ArrayID, Range, In }
     case class IllegalAction(msg: String) extends RuntimeException
     val curMode = mode.asInstanceOf[Trace]
     val curNewShapes = Set.empty[Shape]
@@ -1237,9 +1245,9 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	case Null => nulls.head
 	case ASTVar(n) if variables contains n => variables(n)
 	case ASTVar(n) => curMode.newShapes.find{ _ match { case v: Var if v.name == n => true case _ => false } }.get
-	case IntArrayAccess(a, i) => arrElems(shapeToValue(addAction(createNewPrim)(a)).asInstanceOf[IntArray].id)(shapeToValue(addAction(false)(i)).asInstanceOf[IntConstant].n)
+	case ArrayAccess(a, i) => arrElems(shapeToValue(addAction(createNewPrim)(a)).asInstanceOf[ArrayValue].id)(shapeToValue(addAction(false)(i)).asInstanceOf[IntConstant].n)
 	case FieldAccess(o, f) => fields(shapeToValue(addAction(createNewPrim)(o)).asInstanceOf[Object].id)(f)
-	case ArrayLength(a) => arrLens(shapeToValue(addAction(createNewPrim)(a)).asInstanceOf[IntArray].id)
+	case ArrayLength(a) => arrLens(shapeToValue(addAction(createNewPrim)(a)).asInstanceOf[ArrayValue].id)
 	case p: Primitive => if (createNewPrim) addAndReturnShape(makePrim(p, curNewShapes)(getGraphics())) else makePrim(p, curNewShapes)(getGraphics())
 	case c @ Call(n, a) if helperFunctions.contains(n) =>
 	  val s = addCallable(ConcreteCall(c), a)
@@ -1366,10 +1374,6 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	  diffOriginalVals += (() => p.data = data)
 	  p.data = Some(v.asInstanceOf[Primitive])
 	  diffShapes += origShape
-	case s @ MVal(_, data, _, _, _, _) =>
-	  diffOriginalVals += (() => s.data = data)
-	  s.data = v.asInstanceOf[Primitive]
-	  diffShapes += origShape
 	case p: Pointer =>
 	  val target = (v: @unchecked) match {
 	    case Null => None
@@ -1395,7 +1399,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	}
     } }
     modObjs foreach { case ((id, f), v) => updateShape(fields(id)(f), v) }
-    modArrs foreach { case ((id, i), v) => updateShape(arrElems(id)(i), IntConstant(v)) }
+    modArrs foreach { case ((id, i), v) => updateShape(arrElems(id)(i), v) }
     exprValue foreach { p => newDiffShapes += makePrim(p, Nil)(getGraphics()) }
     repaint()
   }

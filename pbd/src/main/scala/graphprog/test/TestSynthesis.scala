@@ -31,8 +31,8 @@ object TestSynthesis {
   def testOrdering(options: Options) {
     assert(stringOfStmts(codeGenerator.genAllExprs(List((1, new Memory(List(("x" -> IntConstant(1)), ("y" -> IntConstant(1)))))), 1, None)) == "x, y, 1, y / x, x / y, x * y, x * x, y * y")
     assert(stringOfStmts(codeGenerator.genAllExprs(List((1, new Memory(List(("z" -> IntConstant(1)), ("y" -> IntConstant(1)))))), 1, None)) == "y, 1, z / y, y / z, y * z, z, z * z, y * y")
-    assert(stringOfStmts(codeGenerator.genAllExprs(List((42, new Memory(List(("a" -> IntArray(0, List(42).toArray)), ("i" -> IntConstant(0)))))), 1, None)) == "42, a[0], a[i]")
-    assert(stringOfStmts(codeGenerator.genAllExprs(List((42, new Memory(List(("z" -> IntArray(0, List(42).toArray)), ("i" -> IntConstant(0)))))), 1, None)) == "42, z[0], z[i]")
+    assert(stringOfStmts(codeGenerator.genAllExprs(List((42, new Memory(List(("a" -> makeIntArray(0, List(42))), ("i" -> IntConstant(0)))))), 1, None)) == "42, a[0], a[i]")
+    assert(stringOfStmts(codeGenerator.genAllExprs(List((42, new Memory(List(("z" -> makeIntArray(0, List(42))), ("i" -> IntConstant(0)))))), 1, None)) == "42, z[0], z[i]")
   }
 
   def testMultipleMemories(options: Options) {

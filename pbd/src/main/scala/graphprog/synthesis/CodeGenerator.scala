@@ -54,7 +54,7 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
 	    case (e1, e2) if  (targetType == IntType || depth < maxDepth) && typer.typeOfExpr(e1, memory) == IntType && typer.typeOfExpr(e2, memory) == IntType => (if (shortPrinter.stringOfExpr(e1) < shortPrinter.stringOfExpr(e2)) List(Plus(t._1, t._2)) else Nil) ++ (if (shortPrinter.stringOfExpr(e1) <= shortPrinter.stringOfExpr(e2)) List(Times(t._1, t._2)) else Nil) ++ (if (e1 != e2) List(Minus(t._1, t._2)) else Nil) ++ (if (e1 != e2 && evidence.forall{ case (_, memory) => cachingExecutor.evaluate(memory, Div(t._1, t._2)) != ErrorConstant }) List(Div(t._1, t._2)) else Nil)
 	    case (e1, e2) if targetType == BooleanType && typer.typeOfExpr(e1, memory) == IntType && typer.typeOfExpr(e2, memory) == IntType && shortPrinter.stringOfExpr(e1) < shortPrinter.stringOfExpr(e2) => List(EQ(t._1, t._2), NE(t._1, t._2), LT(t._1, t._2), LE(t._1, t._2), GT(t._1, t._2), GE(t._1, t._2))
 	    case (e1, e2) if targetType == BooleanType && typer.typeOfExpr(e1, memory) == BooleanType && typer.typeOfExpr(e2, memory) == BooleanType && shortPrinter.stringOfExpr(e1) < shortPrinter.stringOfExpr(e2) => List(And(t._1, t._2), Or(t._1, t._2))
-	    case (e1, e2) if (targetType == IntType || depth < maxDepth) && typer.typeOfExpr(e1, memory).isInstanceOf[ArrayType] && typer.typeOfExpr(e2, memory) == IntType => if (evidence forall { case (_, memory) => val r = cachingExecutor.evaluateInt(memory, e2); r >= 0 && r < cachingExecutor.evaluate(memory, e1).asInstanceOf[IntArray].array.length }) List(IntArrayAccess(e1, e2)) else Nil
+	    case (e1, e2) if typer.typeOfExpr(e1, memory).isInstanceOf[ArrayType] && typer.typeOfExpr(e2, memory) == IntType && (targetType == typer.typeOfExpr(e1, memory).asInstanceOf[ArrayType].t || depth < maxDepth)=> if (evidence forall { case (_, memory) => val r = cachingExecutor.evaluateInt(memory, e2); r >= 0 && r < cachingExecutor.evaluate(memory, e1).asInstanceOf[ArrayValue].array.length }) List(ArrayAccess(e1, e2)) else Nil
 	    case (e1, e2) if targetType == BooleanType && typer.typeOfExpr(e1, memory).isInstanceOf[ObjectType] && typer.typeOfExpr(e2, memory).isInstanceOf[ObjectType] && canBeSameType(typer.typeOfExpr(e1, memory), typer.typeOfExpr(e2, memory)) && shortPrinter.stringOfExpr(e1) < shortPrinter.stringOfExpr(e2) => List(EQ(e1, e2), NE(e1, e2))
 	    case (e1, e2) if targetType == BooleanType && typer.typeOfExpr(e1, memory) == StringType && typer.typeOfExpr(e2, memory) == StringType && shortPrinter.stringOfExpr(e1) <= shortPrinter.stringOfExpr(e2) => List(EQ(e1, e2), NE(e1, e2))
 	    case _ => Nil
@@ -66,7 +66,7 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
 	  val extras = nextLevel.flatMap{ e => cachingExecutor.evaluate(memory, e) match {
 	    case IntConstant(n) if targetType == IntType || depth < maxDepth => List(Plus(e, IntConstant(1)), Minus(e, IntConstant(1)), Times(e, IntConstant(2)), Div(e, IntConstant(2)))
 	    case IntConstant(n) if targetType == BooleanType || depth < maxDepth => List(LT(e, IntConstant(0)), GT(e, IntConstant(0)))
-	    case IntArray(_, a) if (depth < maxDepth || targetType == IntType) && !e.isInstanceOf[Range] => List(ArrayLength(e)) ++ (if (depth > 0) List(IntArrayAccess(e, IntConstant(0))) else Nil)
+	    case ArrayValue(_, a, _) if (depth < maxDepth || targetType == IntType) && !e.isInstanceOf[Range] => List(ArrayLength(e))
 	    case Object(_, _, f) => f filter { f => depth < maxDepth || canBeSameType(typer.typeOfValue(f._2), targetType) } map { s => FieldAccess(e, s._1) }
 	    case BooleanConstant(b) if targetType == BooleanType && depth > 0 && !e.isInstanceOf[BooleanConstant] => List(Not(e))  // Ensure that negating uses a depth.
 	    case _ => Nil
@@ -90,7 +90,7 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
 	    val fullCrashers = crashers.flatMap{ crashingExpr => expandEquivalences(List(crashingExpr), equivs) }.toSet
 	    def containsCrasher(expr: Expr): Boolean = fullCrashers.contains(expr) || { expr match {
 	      case _: Value | Var(_) | ObjectID(_) | ArrayID(_) => false
-	      case IntArrayAccess(a, i) => containsCrasher(a) || containsCrasher(i)
+	      case ArrayAccess(a, i) => containsCrasher(a) || containsCrasher(i)
 	      case FieldAccess(o, _) => containsCrasher(o)
 	      case ArrayLength(e) => containsCrasher(e)
 	      case Call(_, args) => args.exists(containsCrasher)
@@ -149,10 +149,10 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
 	  case Not(e) =>
 	    for (e <- expandRec(e))
 	      yield Not(e)
-	  case IntArrayAccess(a, i) =>
+	  case ArrayAccess(a, i) =>
 	    for (a <- expandRec(a);
 		 i <- expandRec(i))
-	      yield IntArrayAccess(a, i)
+	      yield ArrayAccess(a, i)
 	  case FieldAccess(o, f) =>
 	    for (o <- expandRec(o))
 	      yield FieldAccess(o, f)
@@ -182,7 +182,7 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
 	//case (Null, e) => e == Null  // TODO: Do I really want this?
 	case (_: Value, _) | (_: ObjectID, _) | (_: ArrayID, _) => true
 	case (Var(n1), Var(n2)) => n1 == n2
-	case (IntArrayAccess(a1, e1), IntArrayAccess(a2, e2)) => hasCorrectForm(a1, a2) && hasCorrectForm(e1, e2)
+	case (ArrayAccess(a1, e1), ArrayAccess(a2, e2)) => hasCorrectForm(a1, a2) && hasCorrectForm(e1, e2)
 	case (FieldAccess(o1, f1), FieldAccess(o2, f2)) => f1 == f2 && hasCorrectForm(o1, o2)
 	case (ArrayLength(a1), ArrayLength(a2)) => hasCorrectForm(a1, a2)
 	case (Call(n1, a1), Call(n2, a2)) => n1 == n2 && a1.size == a2.size && a1.zip(a2).forall{ as => hasCorrectForm(as._1, as._2) }
@@ -204,7 +204,7 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
       }
       { e match {
 	case _: Value | Var(_) | ObjectID(_) | ArrayID(_) => 0
-	case IntArrayAccess(a, i) => max2(a, i) + 1
+	case ArrayAccess(a, i) => max2(a, i) + 1
 	case FieldAccess(o, _) => getDepth(o) + 1
 	case ArrayLength(e) => getDepth(e) + 1
 	case Call(_, args) => maxN(args) + 1
@@ -292,7 +292,7 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
       case _: Expr => genExpr(evidence, maxDepth, curMemory)
       case Assign(l, _) =>
 	val assignEvidence = evidence map { case (a: Assign, m) => (a, m) case s => throw new IllegalArgumentException("Unexpected stmt: " + s) }
-	if (holdsOverIterable(assignEvidence map { case (Assign(l, _), _) => l }, ((x: LVal, y: LVal) => x == y)) && (l match { case FieldAccess(ObjectID(_), _) | IntArrayAccess(ArrayID(_), _) => false case _ => true })) {  // TODO: I should really check l thoroughly, not just at the first level like this.
+	if (holdsOverIterable(assignEvidence map { case (Assign(l, _), _) => l }, ((x: LVal, y: LVal) => x == y)) && (l match { case FieldAccess(ObjectID(_), _) | ArrayAccess(ArrayID(_), _) => false case _ => true })) {  // TODO: I should really check l thoroughly, not just at the first level like this.
 	  val exprEvidence = assignEvidence map { case (Assign(_, r), m) => (r, m) }
 	  val allExprs = genExpr(exprEvidence, maxDepth, curMemory) filter { _ != l }
 	  allExprs map { Assign(l, _) }
