@@ -254,7 +254,10 @@ object SynthesisGUI {
     waiter.take
   }
 
-  def showError(owner: java.awt.Component, error: String) = JOptionPane.showMessageDialog(owner, error, error, JOptionPane.ERROR_MESSAGE)
+  def showError(owner: java.awt.Component, error: String) = {
+    println("Error: " + error)
+    JOptionPane.showMessageDialog(owner, error, error, JOptionPane.ERROR_MESSAGE)
+  }
   def showMessage(owner: java.awt.Component, msg: String, title: String) = JOptionPane.showMessageDialog(owner, msg, title, JOptionPane.INFORMATION_MESSAGE)
   def showInputDialog(gui: SynthesisGUI, msg: String): Option[String] = JOptionPane.showInputDialog(gui, msg) match {
     case null => None

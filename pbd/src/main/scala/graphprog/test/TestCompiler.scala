@@ -31,7 +31,8 @@ object TestCompiler {
     }
 
     def testCheck(text: String, expected: Stmt*) {
-      assert(test(text) == expected.toList)
+      val result = test(text)
+      assert(result == expected.toList, result + " != " + expected.toList)
     }
 
     testCheck("42", 42)
@@ -72,13 +73,20 @@ object TestCompiler {
     testCheck("i in (i+1) to 10", In("i", To(Plus("i", 1), 10)))
     testCheck("j in (i + 1) to a.length", In("j", To(Plus("i", 1), ArrayLength("a"))))
     testCheck("j in (i + 1) until a.length - 1", In("j", Until(Plus("i", 1), Minus(ArrayLength("a"), 1))))
+    testCheck("\"hello\"", StringConstant("hello"))
+    testCheck("\"hello, world\"", StringConstant("hello, world"))
+    testCheck("hello := \"world\"", Assign(Var("hello"), StringConstant("world")))
+    testCheck("x := (a = b)", Assign(Var("x"), EQ(Var("a"), Var("b"))))
+    testCheck("y.color := black", Assign(FieldAccess("y", "color"), Var("black")))
     // Broken
     //test("1 + 1 * 1")
     //test("1 * 1 + 1")
+    //testCheck("(foo()).x", FieldAccess(Call("foo", Nil), "x"))
     //testCheck("p.f.length", ArrayLength(FieldAccess("p", "f")))
     //testCheck("0 to n", To(0, "n"))
     //testCheck("0 until n", Until(0, "n"))
     //testCheck("i in i+1 to 10", In("i", To(Plus("i", 1), 10)))
+    //testCheck("grandparent(x).left = x.parent", EQ(FieldAccess(Call("grandparent", List(Var("x"))), "left"), FieldAccess(Var("x"), "parent")))
   }
 
   def testClasses() {

@@ -501,7 +501,7 @@ protected[gui] class Controls(private val synthesisGUI: SynthesisGUI, private va
 	  SynthesisGUI.showError(synthesisGUI, "Cannot end block")
       case _ => parseOpt(str) match {
 	case Some(a :: Nil) => synthesisGUI.addActionToCanvas(a, shouldDoExpr)
-	case None => SynthesisGUI.showError(synthesisGUI, "Please enter a valid expression.")
+	case None => SynthesisGUI.showError(synthesisGUI, "Please enter a valid expression for " + str)
 	case r => assert(false, str + " got " + r)
       }
     }

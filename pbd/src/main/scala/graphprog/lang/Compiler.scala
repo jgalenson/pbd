@@ -17,7 +17,8 @@ object Compiler {
     lazy val value: PackratParser[Value] = 
       wholeNumber ^^ { case n => IntConstant(n.toInt) } |
       bool ^^ { case b => BooleanConstant(b.toBoolean) } |
-      """null""".r ^^ { case _ => Null }
+      """null""".r ^^ { case _ => Null } |
+      "\"" ~ """[^\"]*""".r ~ "\"" ^^ { case _~s~_ => StringConstant(s.toString) }
 
     lazy val obj: PackratParser[ObjectID] =
       "ObjectID(" ~ wholeNumber ~ ")" ^^ { case _~id~_ => ObjectID(id.toInt) }

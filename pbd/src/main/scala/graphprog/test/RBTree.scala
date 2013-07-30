@@ -322,7 +322,7 @@ object RBTree {
     val x = setParentPointers(makeNode(4, 4, UNK, Null, Null), Null)
     println(stringOfTree(tree))
     println("x = " + stringOfNode(x))
-    test(new Trace("rbInsert", UnitType, List(("tree" -> tree), ("x" -> x)), mapOfPrograms(treeInsertProgram, leftRotateProgram, rightRotateProgram, grandparentProgram, checkTreeInvariantProgram, checkRedBlackInvariantProgram), rbtreeTypes, List(
+    /*test(new Trace("rbInsert", UnitType, List(("tree" -> tree), ("x" -> x)), mapOfPrograms(treeInsertProgram, leftRotateProgram, rightRotateProgram, grandparentProgram, checkTreeInvariantProgram, checkRedBlackInvariantProgram), rbtreeTypes, List(
       Assign("red", LiteralExpr(RED)),
       Assign("black", LiteralExpr(BLACK)),
       Call("treeInsert", List("tree", "x")),
@@ -363,7 +363,8 @@ object RBTree {
       Assign(FieldAccess(FieldAccess("tree", "root"), "color"), "black"),
       LiteralExpr(Call("checkTreeInvariant", List(FieldAccess("tree", "root")))),
       LiteralExpr(Call("checkRedBlackInvariant", List(FieldAccess("tree", "root"))))
-    )), rbInsertGenerator, rbtreeFieldLayout, options)
+    )), rbInsertGenerator, rbtreeFieldLayout, options)*/
+    test("rbInsert", UnitType, List(("tree" -> tree), ("x" -> x)), rbInsertGenerator, None, None, mapOfPrograms(treeInsertProgram, leftRotateProgram, rightRotateProgram, grandparentProgram, checkTreeInvariantProgram, checkRedBlackInvariantProgram), rbtreeTypes, rbtreeFieldLayout, options)
 
   }
   
