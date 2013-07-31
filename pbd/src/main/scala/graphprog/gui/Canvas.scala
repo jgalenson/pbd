@@ -16,7 +16,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 
   import graphprog.lang.AST.{ Action, ArrayValue, IntConstant, Null, Object, Primitive, Value, Assign, Var => ASTVar, Call, HeapValue, Expr, Stmt, Iterate, Loop, BooleanConstant }
   import graphprog.lang.{ Printer, Executor, Typer, Memory }
-  import java.awt.event.{ MouseAdapter, MouseEvent, MouseMotionAdapter, MouseWheelListener, MouseWheelEvent }
+  import java.awt.event.{ MouseAdapter, MouseEvent, MouseMotionAdapter, MouseWheelListener, MouseWheelEvent, KeyAdapter, KeyEvent }
   import scala.annotation.tailrec
 
   private val variables = Map.empty[String, Var]
@@ -246,21 +246,22 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	moveArrowAndRepaint(arrow, arrow => { arrow.dstX += startX - x; arrow.dstY += startY - y })  // Snap back the arrow.
     }
     // TODO: Ideally I would probably use a key listener rather than mouse wheel.
-    val arrowSwitcherListener = new MouseWheelListener() {
+    def switchHeldArrow(notches: Int, x: Int, y: Int) {
+      val allArrows = findArrows(lastX, lastY)
+      if (allArrows.size > 1) {
+	val oldArrow = held.asInstanceOf[FlyingArrow].arrow
+	val newArrow = allArrows((allArrows.indexOf(oldArrow) + notches + allArrows.size) % allArrows.size)  // Add allArrows.size to avoid crashing when you keep scrolling up (and get to 0 - 1 % n).
+	assert(newArrow != oldArrow)
+	oldArrow.isFlying = false
+	snapBackArrow(oldArrow, x, y)
+	newArrow.isFlying = true
+	smartRepaint(boundsOfArrow(newArrow))
+	changeHeld(FlyingArrow(newArrow), x, y)
+      }
+    }
+    val mouseArrowSwitcherListener = new MouseWheelListener() {
       override def mouseWheelMoved(e: MouseWheelEvent) {
-	val allArrows = findArrows(lastX, lastY)
-	if (allArrows.size > 1) {
-	  val notches = e.getWheelRotation()
-	  val oldArrow = held.asInstanceOf[FlyingArrow].arrow
-	  val newArrow = allArrows((allArrows.indexOf(oldArrow) + notches + allArrows.size) % allArrows.size)  // Add allArrows.size to avoid crashing when you keep scrolling up (and get to 0 - 1 % n).
-	  assert(newArrow != oldArrow)
-	  val (x, y) = (e.getX(), e.getY())
-	  oldArrow.isFlying = false
-	  snapBackArrow(oldArrow, x, y)
-	  newArrow.isFlying = true
-	  smartRepaint(boundsOfArrow(newArrow))
-	  changeHeld(FlyingArrow(newArrow), x, y)
-	}
+	switchHeldArrow(e.getWheelRotation(), e.getX(), e.getY())
       }
     }
     addMouseListener(new MouseAdapter() {
@@ -280,7 +281,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 		case _ => smartRepaint(boundsOfArrow(a))
 	      }
 	      a.isFlying = true
-	      addMouseWheelListener(arrowSwitcherListener)
+	      addMouseWheelListener(mouseArrowSwitcherListener)
 	      FlyingArrow(a)
 	    case _ => findInnerShape(x, y) match {
 	      case Some(s) => Mutation(Shadow(s, s.x, s.y))
@@ -331,7 +332,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 		case _ => snapBackArrow(arrow, x, y)
 	      }
 	      arrow.isFlying = false
-	      removeMouseWheelListener(arrowSwitcherListener)
+	      removeMouseWheelListener(mouseArrowSwitcherListener)
 	    case _ =>
 	  }
 	  held forShape { held => {
@@ -344,8 +345,13 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	addTooltipListener()
       }
       override def mouseClicked(e: MouseEvent) {
-	if (e.getButton() != MouseEvent.BUTTON1)
+	if (e.getButton() != MouseEvent.BUTTON1) {
+	  if (e.getButton() == 7)
+	    switchHeldArrow(-1, e.getX(), e.getY())
+	  else if (e.getButton() == 6)
+	    switchHeldArrow(1, e.getX(), e.getY())
 	  return
+	}
 	mode match {
 	  case SelectQuery(possibilitiesSet, possibilitiesMap, _) => findLegalInnerShape(e.getX(), e.getY(), possibilitiesSet) foreach { selected => possibilitySelected(possibilitiesMap(selected)) }
 	  case AssignQuery(possibilitiesMap, lefts, rights, _, _, newArrows) =>
