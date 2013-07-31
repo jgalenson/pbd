@@ -395,8 +395,11 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     val (prunedStmts, shouldContinueWithInput) = simpleInputPruning(code, inputs.get)
     if (shouldContinueWithInput)
       (prunedStmts, inputs)
-    else
+    else {
+      if (prunedStmts == code && preferredInput.isEmpty)
+	throw new SolverError("Cannot generate an input.")
       getNextInput(prunedStmts, None)
+    }
   }
 
   private case class FixCode(reason: String, curStmt: Option[Stmt]) extends RuntimeException with FastException
@@ -1058,6 +1061,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
       } else
 	synthesizeRec(getTraceWithHelpFromUser(furtherPrunedCode, inputs.get, true, false, None))
     }
+    println(getHoleInfo(stmts))
     println("Initial statements:\n" + shortPrinter.stringOfStmts(stmts))
     val (code, isFinished) = synthesizeRec(stmts)
     controller.clearDisplay(code)
