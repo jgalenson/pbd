@@ -1,0 +1,48 @@
+red := "red";
+black := "black";
+treeInsert(tree, x);
+x.color := red;
+:loop (x != tree.root) && (x.parent.color = red);
+isLeftCase := (x.parent.parent.left = x.parent);
+y := null;
+:conditional isLeftCase;
+y := x.parent.parent.right;
+:end;
+:conditional (y != null) && (y.color = red);
+x.parent.color := black;
+y.color := black;
+x.parent.parent.color := red;
+x := x.parent.parent;
+:end;
+:end
+
+:conditional isLeftCase && (x = x.parent.right);
+x := x.parent;
+leftRotate(tree, x);
+:end;
+:conditional (!isLeftCase) && (x = x.parent.left);
+:end;
+x.parent.color := black;
+x.parent.parent.color := red;
+:conditional isLeftCase;
+rightRotate(tree, x.parent.parent);
+:end;
+:end
+
+tree.root.color := black;
+checkTreeInvariant(tree.root);
+checkRedBlackInvariant(tree.root);
+:end
+
+
+y := x.parent.parent.left;
+:end
+
+:end
+
+x := x.parent;
+rightRotate(tree, x);
+:end
+
+leftRotate(tree, x.parent.parent);
+:end

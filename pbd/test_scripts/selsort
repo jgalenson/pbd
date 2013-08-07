@@ -1,0 +1,19 @@
+i:=0;
+:loop i < (a.length-1);
+min:=i;
+j:=i+1;
+:loop j < a.length;
+
+min:=j;
+j:=2;
+:end;
+
+:conditional a[j]<a[min];
+min:=j;
+:end;
+j:=j+1;
+:end
+
+swap(a,i,min);
+i:=i+1;
+:end;

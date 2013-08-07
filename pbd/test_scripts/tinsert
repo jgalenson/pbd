@@ -1,0 +1,22 @@
+y := null;
+x := tree.root;
+:loop x != null;
+y := x;
+:conditional z.value < x.value;
+x := x.right;
+:end;
+:end
+
+z.parent := y;
+:conditional y = null;
+:conditional z.value < y.value;
+y.left := z;
+:end;
+:end;
+:end
+
+y.right := z;
+:end
+
+tree.root := z;
+:end

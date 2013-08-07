@@ -1,0 +1,35 @@
+up := null;
+cur := x;
+:loop cur != null;
+cur.visited := `true`;
+children := cur.children;
+next := `-1`;
+i := `0`;
+:loop i < children.length;
+:conditional (!children[i].visited) && (next = `-1`);
+next := i;
+:end;
+i := i + 1;
+:end;
+
+:conditional next != `-1`;
+cur.index := next;
+:unordered;
+up := cur;
+cur := children[next];
+children[next] := up;
+:end;
+:end;
+:end;
+
+:conditional up != null;
+:unordered;
+up := up.children[up.index];
+cur := up;
+up.children[up.index] := cur;
+:end;
+:end;
+:end;
+
+cur := up;
+:end;

@@ -1,0 +1,8 @@
+y:=x.right;
+x.right:=y.left;
+y.left.parent:=x;
+x.parent.right:=y;
+y.parent:=x.parent;
+y.left:=x;
+x.parent:=y;
+:end
