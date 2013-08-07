@@ -15,6 +15,7 @@ class Executor(private val functions: Map[String, Program], private val printer:
     //println("Executing " + printer.stringOfStmt(s) + " with memory " + printer.stringOfMemory(memory))
     s match {
       case h: Hole => exec(memory, holeHandler(memory, h))
+      case l: TLiteral[_] => exec(memory, l.l)
       case e: Expr => eval(memory, e)
       case Assign(l, r) =>
         val v = eval(memory, r)
@@ -111,7 +112,6 @@ class Executor(private val functions: Map[String, Program], private val printer:
 	if (shouldPrint)
 	  println(s.s)
 	UnitConstant
-      case LiteralAction(a) => exec(memory, a)
       case UnorderedStmts(stmts) =>
 	val newMemories = stmts map { a => val (v, m) = execute(memory, a); if (v == BreakHit) return ErrorConstant else if (isErrorOrFailure(v)) return v else m }
 	val modifications = newMemories map { newMemory => diffMemories(memory, newMemory) }  // TODO-optimization: I'm recomputing memory.getObjectsAndArrays().toSet here
@@ -193,7 +193,8 @@ class Executor(private val functions: Map[String, Program], private val printer:
     def handleDisequality(l: Expr, r: Expr): Value = handleCheckingEquality(l, r, b => !b)
     e match {
       case h: Hole => exec(memory, holeHandler(memory, h))
-      case v: Value => v
+      case l: TLiteralExpr[_] => eval(memory, l.l)
+      case v: Value => getValueFromMemory(v, memory)  // Use the value from the current memory, as this one could be from an old memory.
       case Var(n) =>
         if (!memory.contains(n))
           throw new ExecuteError(e, "Variable does not exist.")
@@ -272,7 +273,6 @@ class Executor(private val functions: Map[String, Program], private val printer:
 	  ErrorConstant
 	else
 	  handleIntArithmetic(l, rVal, _ / _)
-      case LiteralExpr(e) => eval(memory, e)
     }
   }
   private def evalBoolean(memory: Memory, e: Expr): Boolean = eval(memory, e).asInstanceOf[BooleanConstant].b

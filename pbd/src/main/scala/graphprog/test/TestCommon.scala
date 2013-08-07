@@ -154,8 +154,8 @@ protected[test] object TestCommon {
   val listComparator = Map.empty + ("Node" -> (compareLists _))
   val treeComparator = Map.empty ++ List(("Node" -> (compareBinaryTrees _)), ("Tree" -> (compareBinaryTreesTree _)))
 
-  def intArrayAIsSorted(args: Map[String, Value], resMap: Map[String, Value], rv: Value): Boolean = {
-    val array = resMap("a").asInstanceOf[ArrayValue].array.map{ n => n.asInstanceOf[IntConstant].n }
+  def intArrayIsSorted(arrName: String)(args: Map[String, Value], resMap: Map[String, Value], rv: Value): Boolean = {
+    val array = resMap(arrName).asInstanceOf[ArrayValue].array.map{ n => n.asInstanceOf[IntConstant].n }
     holdsOverIterable(array, (n1: Int, n2: Int) => n1 <= n2)
   }
 

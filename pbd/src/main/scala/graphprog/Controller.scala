@@ -214,6 +214,7 @@ object Controller {
    * Parameter 4: Minimum amount of space to leave between things.
    * Return: A list of objects and their new coordinates.
    * TODO: Currently, this is called on every object of this type.  For trees, we would only need to call it on the head, but we cannot avoid it for lists.  I could let the user pass a function telling when to call it (e.g. only when parent is null for trees).
+   * TODO: This should allow us to layout arrays as well.
    */
   type ObjectLayout = (Object, (Value => Int), (Value => Int), Int) => Iterable[(Object, (Int, Int))]
 

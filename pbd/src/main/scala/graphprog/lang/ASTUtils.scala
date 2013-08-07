@@ -114,7 +114,7 @@ protected[graphprog] class Printer(helpers: PartialFunction[String, Value => Str
   protected[graphprog] def stringOfInputs(inputs: List[(String, Value)], sep: String) = iterableToString(inputs, sep, { t: (String, Value) => "input " + t._1 + " -> " + stringOfValue(t._2) })
   protected[graphprog] def stringOfProgram(program: Program): String = "def " + program.name + "(" + iterableToString(program.inputs, ", ", { i: (String, Type) => "input " + i._1 + ": " + stringOfType(i._2) }) + ") {\n" + stringOfStmts(program.stmts, "  ") + "\n}"
   protected[graphprog] def stringOfTrace(trace: Trace): String = "name " + trace.name + "\n" + stringOfInputs(trace.inputs, "\n") + "\n" + stringOfStmts(trace.actions)
-  protected[graphprog] def stringOfMemory(memory: Memory): String = "Mem(" + iterableToString(memory.keys, ", ", (key: String) => key + " -> " + stringOfValue(memory(key))) + ")"
+  protected[graphprog] def stringOfMemory(memory: Memory): String = "Mem(" + iterableToString(memory.keys.sorted, ", ", (key: String) => key + " -> " + stringOfValue(memory(key))) + ")"
 
 }
 
@@ -155,7 +155,7 @@ protected[graphprog] class Typer(functions: Map[String, Program], objectTypes: M
     case ArrayAccess(array, _) => typeOfExpr(array, memory).asInstanceOf[ArrayType].t
     case ObjectID(id) => typeOfValue(memory.getObject(id).get)
     case ArrayID(id) => typeOfValue(memory.getArray(id).get)
-    case LiteralExpr(e) => typeOfExpr(e, memory)
+    case l: TLiteralExpr[_] => typeOfExpr(l.l, memory)
     case _ => typeOfExprNoMemory(e)
   }
   private def typeOfExprNoMemory(e: Expr): Type = e match {
@@ -377,6 +377,7 @@ object ASTUtils {
     getParentsForStmts(code, None, Map.empty) 
   }
 
+  // All values this returns are from the first argument (the old memory).
   protected[graphprog] def diffMemories(memory: Memory, newMemory: Memory): (Map[String, Value], Map[(Int, String), Value], Map[(Int, Int), Value]) = {
     // TODO-bug: I should really track all assigns here.  If we execute an assignment that assigns to the current value, I don't currently catch that.
     val oldKeySet = memory.keys.toSet
@@ -387,8 +388,8 @@ object ASTUtils {
     val (newObjectMap, newArrayMap) = newMemory.getObjectsAndArrays()
     val newObjectIDs = newObjectMap.keys.toSet
     val newArrayIDs = newArrayMap.keys.toSet
-    val newVars = newKeySet diff oldKeySet map { key => (key, newMemory(key)) }
-    val modifiedVars = newKeySet.intersect(oldKeySet).collect{ case n: String if !areEqual(memory(n), newMemory(n), false, false) => (n, newMemory(n)) }
+    val newVars = newKeySet diff oldKeySet map { key => (key, getValueFromMemory(newMemory(key), memory)) }
+    val modifiedVars = newKeySet.intersect(oldKeySet).collect{ case n: String if !areEqual(memory(n), newMemory(n), false, false) => (n, getValueFromMemory(newMemory(n), memory)) }
     val modifiedObjects = newObjectIDs intersect oldObjectIDs flatMap { id => {
       val oldFields = oldObjectMap(id).fields
       val newFields = newObjectMap(id).fields
@@ -399,14 +400,14 @@ object ASTUtils {
 	if (areEqual(oldValue, newValue, false, false))
 	  Nil
 	else
-	  List(((id, field), newValue))
+	  List(((id, field), getValueFromMemory(newValue, memory)))
       }}
     }}
     val modifiedArrays = newArrayIDs intersect oldArrayIDs flatMap { id => {
       val oldArray = oldArrayMap(id).array
       val newArray = newArrayMap(id).array
       assert(newArray.size == oldArray.size)
-      oldArray.zip(newArray).zipWithIndex collect { case ((o, n), i) if o != n => ((id, i), n) }
+      oldArray.zip(newArray).zipWithIndex collect { case ((o, n), i) if o != n => ((id, i), getValueFromMemory(n, memory)) }
     }}
     ((newVars ++ modifiedVars).toMap, modifiedObjects.toMap, modifiedArrays.toMap)
   }
@@ -471,6 +472,19 @@ object ASTUtils {
   protected[graphprog] def copyRange(r: Range, newMin: Expr, newMax: Expr): Range = r match {
     case To(_, _) => To(newMin, newMax)
     case Until(_, _) => Until(newMin, newMax)
+  }
+
+  /**
+   * Gets the copy of the given value that resides in the given memory.
+   * For primitives, this returns the original value, but for heap values
+   * it might return a different object.
+   * This is useful for ensuring that we do not have multiple copies of
+   * the same object/array in the same memory.
+   */
+  protected[graphprog] def getValueFromMemory(v: Value, memory: Memory) = v match {
+    case Object(id, _, _) => memory.getObject(id).get
+    case ArrayValue(id, _, _) => memory.getArray(id).get
+    case v => v
   }
 
 }

@@ -2,7 +2,7 @@ package graphprog.gui
 
 import java.awt.{ Color, Font, Graphics2D, Rectangle, Graphics, BasicStroke }
 import Shape._
-import graphprog.lang.AST.{ Null, Object, Primitive, ArrayValue, IntConstant, Value, Program, Expr, Var => ASTVar, LVal, Call, Assign, Action, FieldAccess, ArrayAccess, ArrayLength, ObjectID, ArrayID, HeapValue, Type, PrimitiveType }
+import graphprog.lang.AST.{ Null, Object, Primitive, ArrayValue, IntConstant, Value, Program, Expr, Var => ASTVar, LVal, Call, Assign, Action, FieldAccess, ArrayAccess, ArrayLength, ObjectID, ArrayID, HeapValue, Type, PrimitiveType, LiteralExpr, LiteralAction }
 import graphprog.lang.ASTUtils.stringOfPrimitive
 import graphprog.lang.{ Typer, Printer }
 import graphprog.Utils._
@@ -36,10 +36,10 @@ case class IVal(data: Primitive, var x: Int, var y: Int, var width: Int, var hei
 }
 case class Prim(name: String, var data: Option[Primitive], var x: Int, var y: Int, var width: Int, var height: Int) extends Var
 case class Pointer(name: String, arrow: Arrow, var x: Int, var y: Int, var width: Int, var height: Int) extends Var
-case class Arr(data: ArrayValue, var x: Int, var y: Int, var width: Int, var height: Int) extends HeapObject {
+case class Arr(var data: ArrayValue, var x: Int, var y: Int, var width: Int, var height: Int) extends HeapObject {
   override def hashCode: Int = data.hashCode  // We need to avoid loops for circular structures
 }
-case class Obj(data: Object, var x: Int, var y: Int, var width: Int, var height: Int) extends HeapObject {
+case class Obj(var data: Object, var x: Int, var y: Int, var width: Int, var height: Int) extends HeapObject {
   override def hashCode: Int = data.hashCode  // We need to avoid loops for circular structures
 }
 
@@ -199,7 +199,7 @@ protected[gui] object Shape {
 	  drawTextLeft(msg, x + TEXT_PADDING, y, h)
 	  y + h
 	}}
-      case ArrLen(IVal(len, x, y, w, h), _) => drawCentered("length: " + stringOfPrimitive(len), x, y, w, h)
+      case ArrLen(IVal(len, x, y, w, h), _) => drawCentered("len: " + stringOfPrimitive(len), x, y, w, h)
       case c: Child[_, _] => draw(g, c.child, getChildren, colorer, arrowColorer, isShadow, parent = Some(c))
       case NullShape(_, x, y, w, h) =>
 	g.drawLine(x, y, x + w, y)
@@ -255,7 +255,7 @@ protected[gui] object Shape {
   }
   def widthOfVal(value: Value, g: Graphics, fieldLayouts: IMap[String, List[List[String]]]): Int = value match {
     case p: Primitive => widthOfString(stringOfPrimitive(p), g)
-    case ArrayValue(_, array, _) => math.max(array.map{ v => widthOfVar("", v, g) }.sum, widthOfString("length: " + array.length, g))
+    case ArrayValue(_, array, _) => math.max(array.map{ v => widthOfVar("", v, g) }.sum, widthOfString("len: " + array.length, g))
     case Object(_, _, fields) if fields.isEmpty => DEFAULT_WIDTH
     case Object(_, typ, fields) if fieldLayouts.contains(typ) => fieldLayouts(typ).map{ _.map{ f => widthOfVar(f, fields(f), g) + FIELD_PADDING }.sum }.max + FIELD_PADDING
     case Object(_, _, fields) => fields.map{ f => widthOfVar(f._1, f._2, g) }.max + 2 * FIELD_PADDING
@@ -308,7 +308,7 @@ protected[gui] object Shape {
     canReceive(lhs)
   }
 
-  def assign(lhs: Shape, rhs: Shape, pointees: Map[Option[Shape], Set[Arrow]]): Action = {
+  def assign(lhs: Shape, rhs: Shape, pointees: Map[Option[Shape], Set[Arrow]], literalShapes: Set[Shape]): Action = {
     // Update the gui with the result of the assignment
     def updateGUIWithAssignment(lhs: Shape, rhs: Shape): Unit = {
       @tailrec def getPrimitive(shape: Shape): Primitive = (shape: @unchecked) match {
@@ -343,7 +343,7 @@ protected[gui] object Shape {
     }
     updateGUIWithAssignment(lhs, rhs)
     // Return the Action representing it.
-    Assign(shapeToLVal(lhs), shapeToExpr(rhs))
+    Assign(shapeToLVal(lhs), shapeToExpr(rhs, literalShapes))
   }
 
   def getBinding(v: Var): (String, Value) = v.name -> ((v: @unchecked) match {
@@ -365,24 +365,36 @@ protected[gui] object Shape {
     case c: Child[_, _] => shapeToValue(c.child)
     case FuncCall(_, _, Some(result), _, _, _, _, _, _, _) => result
   }
-  def shapeToExpr(shape: Option[Shape]): Expr = shape match {
+  def shapeToExpr(shape: Option[Shape], literalShapes: Set[Shape]): Expr = shape match {
     case None => Null
-    case Some(s) => shapeToExpr(s)
+    case Some(s) => shapeToExpr(s, literalShapes)
   }
-  def shapeToExpr(shape: Shape): Expr = shape match {
+  def shapeToExpr(shape: Shape, literalShapes: Set[Shape]): Expr = literalChecker(literalShapes, (e: Expr) => LiteralExpr(e), _ match {
     case ArrLen(_, Arr(a, _, _, _, _)) => ArrayLength(a)
-    case FuncCall(Prog(f), argArrows, _, _, _, _, _, _, _, _) if argArrows.size == f.inputs.size => Call(f.name, argArrows.map{ a => shapeToExpr(a.target) }.toList)
-    case FuncCall(UnaryOp(_, op, _), List(a), _, _, _, _, _, _, _, _) => op(shapeToExpr(a.target))
-    case FuncCall(BinaryOp(_, op, _), List(a1, a2), _, _, _, _, _, _, _, _) => op(shapeToExpr(a1.target), shapeToExpr(a2.target))
+    case FuncCall(Prog(f), argArrows, _, _, _, _, _, _, _, _) if argArrows.size == f.inputs.size => Call(f.name, argArrows.map{ a => shapeToExpr(a.target, literalShapes) }.toList)
+    case FuncCall(UnaryOp(_, op, _), List(a), _, _, _, _, _, _, _, _) => op(shapeToExpr(a.target, literalShapes))
+    case FuncCall(BinaryOp(_, op, _), List(a1, a2), _, _, _, _, _, _, _, _) => op(shapeToExpr(a1.target, literalShapes), shapeToExpr(a2.target, literalShapes))
     case FuncCall(op: ConcreteOp, _, _, _, _, _, _, _, _, _) => op.e
     case Arr(ArrayValue(id, _, _), _, _, _, _) => ArrayID(id)
     case Obj(Object(id, _, _), _, _, _, _) => ObjectID(id)  // If we returned the object directly, executing a call would modify the object directly.
     case _ => (shapeToLVal orElse shapeToValue)(shape)
-  }
+  })(shape)
+
   private val shapeToLVal: PartialFunction[Shape, LVal] = {
     case v: Var => ASTVar(v.name)
     case Field(field, Obj(Object(id, _, _), _, _, _, _)) => FieldAccess(ObjectID(id), field.name)  // As above in shapeToExpr, we return a reference to the object and not the object itself since it is only a copy of the real object in the synthesizer.
     case ArrAccess(_, i, Arr(ArrayValue(id, _, _), _, _, _, _)) => ArrayAccess(ArrayID(id), IntConstant(i))
+  }
+  /*
+   * Wraps a partial function and applies the given constructor if the argument
+   * is in the given set of literal shapes.
+   */ 
+  private def literalChecker[T](literalShapes: Set[Shape], cons: T => T, f: PartialFunction[Shape, T]): PartialFunction[Shape, T] = _ match {
+    case shape if f.isDefinedAt(shape) => 
+      if (literalShapes.contains(shape))
+	cons(f(shape))
+      else
+	f(shape)
   }
 
   def makeCallArrow(x: Int, y: Int, w: Int, numArgs: Int, target: Option[Shape], i: Int, pointees: Map[Option[Shape], Set[Arrow]]): Arrow = {

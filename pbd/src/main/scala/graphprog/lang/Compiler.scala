@@ -5,7 +5,7 @@ object Compiler {
   import AST._
   import scala.util.parsing.combinator._
 
-  // TODO: Missing array literals, if/conditional, loop/iterate, arith disambiguation, array length
+  // TODO: Missing array literals, if/conditional, loop/iterate, arith disambiguation
   private object TraceCompiler extends JavaTokenParsers with PackratParsers {
 
     override val whiteSpace = """[ \t]+""".r
@@ -62,7 +62,8 @@ object Compiler {
     
     lazy val expr: PackratParser[Expr] =
       arithmetic | comparison | not | value | in | range | length | obj | call | lval |  // Order and | not ||| matter here, and value must preceed lval to recognize true/false.
-      "(" ~ expr ~ ")" ^^ { case _~e~_ => e }
+      "(" ~ expr ~ ")" ^^ { case _~e~_ => e } |
+      "`" ~ expr ~ "`" ^^ { case _~e~_ => LiteralExpr(e) }
 
     lazy val action: PackratParser[Action] =
       lval ~ ":=" ~ expr ^^ { case l~_~r => Assign(l, r) } |
@@ -91,8 +92,9 @@ object Compiler {
 
   }
 
-  protected[graphprog] def parse(text: String): List[Action] = {
-    TraceCompiler.parse(text).get
+  protected[graphprog] def parse(text: String): List[Action] = TraceCompiler.parse(text) match {
+    case result @ TraceCompiler.Success(_, _) => result.get
+    case result => throw new RuntimeException("Cannot parse " + text + ".  Got: " + result.toString)
   }
   protected[graphprog] def parseClasses(text: String): List[Type] = {
     TraceCompiler.parseClasses(text).get
@@ -101,7 +103,7 @@ object Compiler {
   protected[graphprog] def parseOpt(text: String): Option[List[Action]] = {
     TraceCompiler.parse(text) match {
       case TraceCompiler.Success(r, _) => Some(r)
-      case _ => None
+      case s => println(s); None
     }
   }
 

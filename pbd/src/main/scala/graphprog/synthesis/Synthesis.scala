@@ -52,9 +52,8 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
   /* Algorithms */
 
   private def genProgramFromCompleteTraces(actions: List[Action], memory: Memory, loops: TMap[Iterate, Loop]): List[Stmt] = {
-    //traces foreach { t => println(utils.stringOfTrace(t)) }
     def genProgramFromCompleteTracesRec(ast: List[Stmt], traces: List[(List[Action], Memory)]): List[Stmt] = {
-      //println(iterableToString(traces, " and ", (t: (List[Action], Memory)) => "[" + utils.stringOfStmts(t._1, t._2) + "]") + ".")
+      //println(iterableToString(traces, " and ", (t: (List[Action], Memory)) => "[" + longPrinter.stringOfStmts(t._1) + " in " + longPrinter.stringOfMemory(t._2) + "]") + ".")
       if (traces.isEmpty)
 	return ast :+ UnseenStmt()
       if (traces.head._1.isEmpty)
@@ -82,8 +81,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	  Loop(genProgramFromCompleteTracesRec(Nil, newConditionals).head, genProgramFromCompleteTracesRec(Nil, bodies))
 	case Assert(_) | Assume(_) | Println(_) => heads.head._1  // TODO: Is this right?
 	case Break => assert(heads forall { _._1 == Break }); return ast :+ Break
-	case LiteralAction(a) => assert(holdsOverIterable(heads, (x: (Action, Memory), y: (Action, Memory)) => x._1 == y._1)); a
-	case LiteralExpr(e) => assert(holdsOverIterable(heads, (x: (Action, Memory), y: (Action, Memory)) => x._1 == y._1)); e
+	case l: TLiteral[_] => assert(holdsOverIterable(heads, (x: (Action, Memory), y: (Action, Memory)) => x._1 == y._1)); l.l
 	case UnorderedStmts(_) => 
 	  val bodies = heads map { case (UnorderedStmts(s), m) => s.asInstanceOf[List[Action]] map { a => (List(a), m) } case _ => throw new RuntimeException }
 	  UnorderedStmts(bodies.transpose flatMap { x => genProgramFromCompleteTracesRec(Nil, x) })
@@ -425,7 +423,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     var continue = false  // Whether the user has selected to continue.
     var foundMoreExpressions = false
     def doFixStep(memory: Memory, curStmt: Option[Stmt], newStmts: IMap[Stmt, Stmt], newBlocks: IMap[Stmt, List[Stmt]], diffInfo: Option[(Memory, Stmt, Value)]): Boolean = {
-      assert(amFixing)
+      assert(amFixing || diffInfo.isEmpty)
       (diffInfo, continue) match {
 	case (Some(_), true) => // The user pressed continue and there's only one possibility, so execute it.
 	case _ =>
@@ -488,7 +486,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	if (breakHit) 
 	  ((memory, trace, newStmts, newBlocks), breakHit)
 	else if (newBlocks.contains(curStmt))
-	  executeWithHelpFromUserHelper(memory, newBlocks(curStmt), newStmts, newBlocks, indent, noprint)
+	  executeWithHelpFromUserHelper(memory, newBlocks(curStmt), newStmts, newBlocks, indent, printFn)
 	else {
 	  val actualCurStmt = newStmts.getOrElse(curStmt, curStmt)
 	  //println("Executing " + shortPrinter.stringOfStmt(actualCurStmt))
@@ -670,8 +668,9 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 		//val (actions, curResult, newMemory) = getActionText(true)
 		val (newerPossibilities, actions, curResult, newMemory) = getActionGUI(newPossibilities)
 		// Filter out possibilities ruled illegal by this new action (which will reduce the possibilities in the next iteration).
+		//assert(actions.toSet == newerPossibilities.filter{ p => yieldEquivalentResults(memory, p, curResult, newMemory, defaultExecutor) }.toSet, shortPrinter.stringOfStmts(actions) + ", " + shortPrinter.stringOfStmts(newerPossibilities.filter{ p => yieldEquivalentResults(memory, p, curResult, newMemory, defaultExecutor) }.toSet))  // TODO: I currently use anything that yields the same result, not just the actions clicked by the user.
 		val newStmt = possibilitiesToStmt(curHole, newerPossibilities filter { p => yieldEquivalentResults(memory, p, curResult, newMemory, defaultExecutor) })
-		//println("Changed " + shortPrinter.stringOfStmt(curStmt) + " to " + shortPrinter.stringOfStmt(newStmt))
+		println(indent + "Changed " + shortPrinter.stringOfStmt(actualCurStmt) + " to " + shortPrinter.stringOfStmt(newStmt))
 		numDisambiguations += 1
 		updateHoleMaps(newStmt, actions, true)
 		//continue = false  // TODO: Should we continue in this case or not?
@@ -769,20 +768,20 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	      myprintln("break")
 	      ((memory, trace :+ Break, newStmts, newBlocks), true)
 	    case UnorderedStmts(stmts) =>
-	      myprintln("unordered")
+	      myprintln("unordered:")
 	      val result = stmts map { s => executeWithHelpFromUserHelper(memory, List(s), newStmts, newBlocks, indent + "  ", printFn)._1 }
 	      val actions = result flatMap { _._2 }
 	      val actionStmt = UnorderedStmts(actions)
 	      val newMemory = {  // We cannot simply execute actionStmt, since it might, for example, have a possibilities hole with two different LHS.  So we manually combine the memories.
 		val clonedMem = memory.clone
 		val (objs, arrs) = clonedMem.getObjectsAndArrays()  // We have to call this before we start modifications as things can become orphaned.
-		val diffs = result map { _._1 } map { m => diffMemories(memory, m) }
-		diffs.foldLeft(clonedMem){ case (acc, (newVars, modObjs, modArrs)) => {
-		  newVars foreach { acc += _ }
+		val diffs = result map { _._1 } map { m => diffMemories(clonedMem, m) }
+		diffs.map{ case (newVars, modObjs, modArrs) => {
+		  newVars foreach { clonedMem += _ }
 		  modObjs foreach { case ((id, f), v) => objs(id).fields(f) = v }
 		  modArrs foreach { case ((id, i), v) => arrs(id).array(i) = v }
-		  acc
 		} }
+		clonedMem
 	      }
 	      // We manually combine the new statements and keep only things that are different from what we knew before this unordered stmt.
 	      val newerStmts = result.map{ _._3 }.foldLeft(newStmts){ (acc, cur) => cur.foldLeft(acc){ (acc, kv) => if (!acc.contains(kv._1) || newStmts(kv._1) != kv._2) acc + kv else acc } }
@@ -806,7 +805,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
   }
   protected[graphprog] def executeLoopWithHelpFromUser(memory: Memory, origStmts: List[Stmt], pruneAfterUnseen: Boolean): LoopIntermediateInfo = {
     try {
-      StmtInfo(executeWithHelpFromUser(memory, origStmts, pruneAfterUnseen, false, None))
+      StmtInfo(executeWithHelpFromUser(memory, origStmts, pruneAfterUnseen, false, None))  // FIXME: This false should be true so I walk through the loop and let users do fixes (e.g., add conditionals) immediately.  Unfortunately, findLegalJoinPoints will crash, as it gets as code only the loop's code but uses the initial inputs to the whole trace.  Testcase: Selection sort.  In addition, fixing this might well allow us to do partial pruning after the first iteration of a loop and hence reduce the number of disambiguation queries we ask in loops.
     } catch {
       case SkipTrace(e: EndTrace, _, _) => e
     }
@@ -1160,6 +1159,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	    val all = goods.map{ _._3.toList }
 	    if (fails.nonEmpty)  // Don't add fails if it is empty or we get tons of bogus paths and slowdown.
 	      all += fails.toList
+	    //assert(all.forall{ _.nonEmpty } && all.nonEmpty, all)
 	    all
           }
 	  if (Thread.currentThread().isInterrupted())  // Manually check for interruption and timeout.  This won't catch infinite loops with no holes, though.
@@ -1186,7 +1186,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	  }
 	}
 	val executor = new Executor(functions, longPrinter, holeHandler) {
-	  override def doLoopBody(memory: Memory, l: Loop): Value = {  // Do a simple check for a loop with no chanegs to memory and do a fast timeout if we're in one.
+	  override def doLoopBody(memory: Memory, l: Loop): Value = {  // Do a simple check for a loop with no changes to memory and do a fast timeout if we're in one.
 	    val initMem = memory.clone
 	    val v = super.doLoopBody(memory, l)
 	    if (memoriesAreEqual(memory, initMem))
@@ -1231,6 +1231,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 		tryToBacktrack()
 	    }
 	  }
+	  path --= path.filter{ _._2.isEmpty }  // FIXME: Why do I need this?  This should never happen, but it does, and I crash a few lines above or below.
 	  // Optimization: if this path uses a known-successful possibility for each legal hole, then we do not need to search through all possible values for non-legal holes on the similar path as doing so cannot help us.  So we prune the non-legal holes at the end and backtrack on the last legal hole.
 	  // This optimization is very important: it drastically speeds things up e.g. on leftRotate.
 	  if (legalHoles.forall{ h => path.find{ h == _._1 } match { case Some((_, groups)) => successfulChoices.get(h) match { case Some(good) => groups.head.forall { s => good contains s } case None => false } case None => false } })

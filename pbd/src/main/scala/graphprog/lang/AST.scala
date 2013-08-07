@@ -97,8 +97,10 @@ object AST {
   case object Break extends Action
   case class Println(s: StringConstant) extends Action
 
-  case class LiteralAction(a: Action) extends Action
-  case class LiteralExpr(e: Expr) extends Expr
+  sealed trait TLiteral[T <: Action] { val l: T }
+  sealed trait TLiteralExpr[T <: Expr] extends TLiteral[Expr] { val l: T }
+  case class LiteralAction(l: Action) extends Action with TLiteral[Action]
+  case class LiteralExpr(l: Expr) extends Expr with TLiteralExpr[Expr]
 
   case class UnorderedStmts(s: List[Stmt]) extends Action
   case class Snapshot(memory: Memory) extends Action

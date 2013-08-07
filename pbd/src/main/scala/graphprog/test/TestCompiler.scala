@@ -36,6 +36,7 @@ object TestCompiler {
     }
 
     testCheck("42", 42)
+    testCheck("-42", -42)
     testCheck("x", "x")
     testCheck("true", true)
     testCheck("false", false)
@@ -69,6 +70,7 @@ object TestCompiler {
     testCheck("i + 1 to a.length", To(Plus("i", 1), ArrayLength("a")))
     testCheck("i + 1 until a.length - 1", Until(Plus("i", 1), Minus(ArrayLength("a"), 1)))
     testCheck("i in 1 to 10", In("i", To(1, 10)))
+    testCheck("i in 0 until 5", In("i", Until(0, 5)))
     testCheck("i in 1 to a.length", In("i", To(1, ArrayLength("a"))))
     testCheck("i in (i+1) to 10", In("i", To(Plus("i", 1), 10)))
     testCheck("j in (i + 1) to a.length", In("j", To(Plus("i", 1), ArrayLength("a"))))
@@ -78,6 +80,7 @@ object TestCompiler {
     testCheck("hello := \"world\"", Assign(Var("hello"), StringConstant("world")))
     testCheck("x := (a = b)", Assign(Var("x"), EQ(Var("a"), Var("b"))))
     testCheck("y.color := black", Assign(FieldAccess("y", "color"), Var("black")))
+    testCheck("`0`", LiteralExpr(IntConstant(0)))
     // Broken
     //test("1 + 1 * 1")
     //test("1 * 1 + 1")
@@ -85,6 +88,7 @@ object TestCompiler {
     //testCheck("p.f.length", ArrayLength(FieldAccess("p", "f")))
     //testCheck("0 to n", To(0, "n"))
     //testCheck("0 until n", Until(0, "n"))
+    //testCheck("0 until 5", Until(0, 5))
     //testCheck("i in i+1 to 10", In("i", To(Plus("i", 1), 10)))
     //testCheck("grandparent(x).left = x.parent", EQ(FieldAccess(Call("grandparent", List(Var("x"))), "left"), FieldAccess(Var("x"), "parent")))
   }

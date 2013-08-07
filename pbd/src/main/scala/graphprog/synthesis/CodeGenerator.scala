@@ -16,9 +16,9 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
 
   // TODO-cleanup: Ugly.
   protected[graphprog] def genAllExprs(evidence: Iterable[(Action, Memory)], maxDepth: Int, curMemory: Option[Memory], checker: Option[(Expr, Action, Memory) => Boolean] = None): Iterable[Expr] = {
-    if (evidence.head._1.isInstanceOf[LiteralExpr]) {  // TODO: This should probably be in fillHoles once I have it recursing on itself for +,<,etc.
+    if (evidence.head._1.isInstanceOf[TLiteralExpr[_]]) {  // TODO: This should probably be in fillHoles once I have it recursing on itself for +,<,etc.
       assert(holdsOverIterable(evidence, (x: (Action, Memory), y: (Action, Memory)) => x._1 == y._1))
-      return List(evidence.head._1.asInstanceOf[LiteralExpr].e)
+      return List(evidence.head._1.asInstanceOf[TLiteralExpr[Expr]].l)
     }
     val cachingExecutor = new CachingExecutor(functions, shortPrinter)
     def makeCalls(name: String, actualsPossibilities: Iterable[Iterable[Expr]]): Iterable[Call] = {
@@ -98,7 +98,7 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
 	      case r: Range => containsCrasher(r.min) || containsCrasher(r.max)
 	      case op: BinaryOp => containsCrasher(op.lhs) || containsCrasher(op.rhs)
 	      case Not(e) => containsCrasher(e)
-	      case LiteralExpr(e) => containsCrasher(e)
+	      case l: TLiteralExpr[_] => containsCrasher(l.l)
 	      case _: Hole => throw new IllegalArgumentException(expr.toString)
 	    } }
 	    equivalences.values.foreach{ memEquivs => {
@@ -139,8 +139,9 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
 	  return equivalences(expr)
 	newlyExpanded += expr
 	val curEquivalences = equivalences.getOrElseUpdate(expr, MSet.empty[Expr] + expr)
+	curEquivalences ++= curEquivalences.flatMap(expandRec)  // We have to expand these equivalences and add in the results or we will miss some expressions (e.g., DSW).
 	curEquivalences ++= { expr match {
-	  case _: Value | Var(_) | ObjectID(_) | ArrayID(_) | LiteralExpr(_) => Nil
+	  case _: Value | Var(_) | ObjectID(_) | ArrayID(_) | _: TLiteralExpr[_] => Nil
 	  case op: BinaryOp =>
 	    { for (l <- expandRec(op.lhs);
 		   r <- expandRec(op.rhs))
@@ -169,7 +170,7 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
 	  case Call(name, args) =>
 	    makeCalls(name, args.map(expandRec))
 	  case _ => Nil
-	} }
+	} }.filter{ e => getDepth(e) <= maxDepth }  // Avoid adding in a lot of expressions with too large depths so we don't recurse on them lots of time.
 	curEquivalences
       }
       val candidates = validExprs.flatMap{ e => equivalences.getOrElse(e, Set(e)).toSet }.toSet  // We need to expand all of the equivalent expressions since some will have different forms.
@@ -212,7 +213,7 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
 	case r: Range => max2(r.min, r.max) + 1
 	case op: BinaryOp => max2(op.lhs, op.rhs) + 1
 	case Not(e) => getDepth(e) + 1
-	case LiteralExpr(e) => getDepth(e)
+	case l: TLiteralExpr[_] => getDepth(l.l)
 	case _: Hole => throw new IllegalArgumentException(e.toString)
       } } + { if (isDoubleInfix(e)) 1 else 0 }
     }
@@ -226,7 +227,9 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
       else
 	exprs filter { e => evidence forall { case (a, m) => checker.get(e, a, m) } }
     //println("Valid exprs: {" + iterableToString(validExprs, ", ", (e: Expr) => shortPrinter.stringOfExpr(e)) + "}")
-    val allExprs = expandEquivalences(validExprs, equivalences).filter{ e => getDepth(e) <= maxDepth }.filter(hasCorrectForm(evidence.map{ _._1 }))
+    val expandedValidExprs = expandEquivalences(validExprs, equivalences)
+    //println("Expanded valid exprs: {" + iterableToString(expandedValidExprs, ", ", (e: Expr) => shortPrinter.stringOfExpr(e)) + "}")
+    val allExprs = expandedValidExprs.filter{ e => getDepth(e) <= maxDepth }.filter(hasCorrectForm(evidence.map{ _._1 }))
     //println("Final exprs: {" + iterableToString(allExprs, ", ", (e: Expr) => shortPrinter.stringOfExpr(e)) + "}")
     allExprs
   }

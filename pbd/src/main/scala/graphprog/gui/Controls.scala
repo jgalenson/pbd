@@ -505,7 +505,7 @@ protected[gui] class Controls(private val synthesisGUI: SynthesisGUI, private va
 	case r => assert(false, str + " got " + r)
       }
     }
-    str.split(";") foreach { s => addAction(s.trim()) }
+    str.split(";") foreach { s => println(s); addAction(s.trim()) }
   }
 
   private abstract class BlockEdit(block: Block) extends AbstractUndoableEdit {

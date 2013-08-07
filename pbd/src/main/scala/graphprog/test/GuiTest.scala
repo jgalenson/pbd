@@ -233,17 +233,28 @@ object GuiTest {
 
     //testSynthesis("test1", UnitType, List(("a" -> makeIntArray(0, /*List(137, 42, 5, 11, 18, 42, 101010)*/List(42, 17, 137)))), mapOfPrograms(swapProgram), IMap.empty, None, IMap.empty, IMap.empty, IMap.empty, options)
 
-    testSynthesis("selectionSort", UnitType, List(("a" -> makeIntArray(0, List(137, 42, 5, 11, 18, 42, 101010)))), mapOfPrograms(swapProgram), IMap.empty, Some(intArrayAIsSorted), IMap.empty, IMap.empty, IMap.empty, options)
-    //testSynthesis("selectionSort", UnitType, List(("a" -> makeIntArray(0, List(42, 137, 5, 11, 18, 42, 101010)))), mapOfPrograms(swapProgram), IMap.empty, Some(intArrayAIsSorted), IMap.empty, IMap.empty, IMap.empty, options)
-
-    def knapsackWeakPost(args: IMap[String, Value], resMap: IMap[String, Value], rv: Value): Boolean = {
-      val items = args("items").asInstanceOf[ArrayValue].array.map{ n => n.asInstanceOf[IntConstant].n }
-      val nums = args("result").asInstanceOf[ArrayValue].array.map{ n => n.asInstanceOf[IntConstant].n }
-      val max = args("max").asInstanceOf[IntConstant].n
-      assert(items.size == nums.size)
-      items.zip(nums).foldLeft(0){ (acc, cur) => acc + cur._1 * cur._2 } <= max
+    def testSelectionSort() {
+      def fullSortCorrectness(arrName: String)(args: IMap[String, Value], resMap: IMap[String, Value], rv: Value): Boolean = {
+	intArrayIsSorted(arrName)(args, resMap, rv) && resMap(arrName).asInstanceOf[ArrayValue].array.toList == args(arrName).asInstanceOf[ArrayValue].array.toList.sortWith{ (x, y) => x.asInstanceOf[IntConstant].n <= y.asInstanceOf[IntConstant].n }
+      }
+      //testSynthesis("selectionSort", UnitType, List(("a" -> makeIntArray(0, List(137, 42, 5, 11, 18, 42, 101010)))), mapOfPrograms(swapProgram), IMap.empty, Some(intArrayIsSorted("a")), IMap.empty, IMap.empty, IMap.empty, options)
+      testSynthesis("selectionSort", UnitType, List(("a" -> makeIntArray(0, List(137, 42, 5, 11, 18, 42, 101010)))), mapOfPrograms(swapProgram), IMap.empty, Some(fullSortCorrectness("a")), IMap.empty, IMap.empty, IMap.empty, options)
+      //testSynthesis("selectionSort", UnitType, List(("a" -> makeIntArray(0, List(42, 137, 5, 11, 18, 42, 101010)))), mapOfPrograms(swapProgram), IMap.empty, Some(intArrayIsSorted("a")), IMap.empty, IMap.empty, IMap.empty, options)
     }
-    //testSynthesis("knapsack", ArrayType(IntType), List(("items" -> makeIntArray(0, List(215, 275, 335, 355, 420, 580))), ("max" -> IntConstant(1505)), ("result" -> makeIntArray(1, Array.fill(1505)(0)))), IMap.empty, IMap.empty, Some(knapsackWeakPost), IMap.empty, IMap.empty, IMap.empty, options)
+
+    def testKnapsack() {
+      def knapsackWeakPost(args: IMap[String, Value], resMap: IMap[String, Value], rv: Value): Boolean = {
+	val items = args("items").asInstanceOf[ArrayValue].array.map{ n => n.asInstanceOf[IntConstant].n }
+	val nums = args("result").asInstanceOf[ArrayValue].array.map{ n => n.asInstanceOf[IntConstant].n }
+	val max = args("max").asInstanceOf[IntConstant].n
+	assert(items.size == nums.size)
+	items.zip(nums).foldLeft(0){ (acc, cur) => acc + cur._1 * cur._2 } <= max
+      }
+      testSynthesis("knapsack", ArrayType(IntType), List(("items" -> makeIntArray(0, List(215, 275, 335, 355, 420, 580))), ("max" -> IntConstant(1505)), ("result" -> makeIntArray(1, Array.fill(1505)(0)))), IMap.empty, IMap.empty, Some(knapsackWeakPost), IMap.empty, IMap.empty, IMap.empty, options)
+    }
+
+    testSelectionSort()
+    //testKnapsack()
 
   }
 

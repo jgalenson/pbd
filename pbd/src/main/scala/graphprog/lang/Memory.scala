@@ -22,7 +22,7 @@ class Memory(val mem: Stack[MMap[String, Value]]) extends Serializable {
   def contains(key: String): Boolean = mem.find{ _ contains key}.isDefined
   protected[graphprog] def enterScope(): Unit = mem.push(MMap[String, Value]())
   protected[graphprog] def exitScope(): Unit = mem.pop
-  def keys: Iterable[String] = mem flatMap { _.keys }
+  def keys: Seq[String] = mem flatMap { _.keys }
   
   override def clone: Memory = new Memory(cloneHelper(mem, Stack[MMap[String, Value]]()))
   def cloneFrom(other: Memory) {
@@ -69,12 +69,14 @@ object Memory {
 	if (!arrays.contains(id)) {
 	  arrays += (id -> a)
 	  getObjectsAndArrays(array)
-	}
+	}/* else
+	  assert(a.eq(arrays(id)) && !objects.contains(id), a + " " + { if (a.eq(arrays(id))) objects(id) else arrays(id) } + " in " + (new Printer(Map.empty, true)).stringOfMemory(new Memory(mem)))*/
       case o @ Object(id, _, fields) =>
 	if (!objects.contains(id)) {
 	  objects += (id -> o)
 	  getObjectsAndArrays(fields.values)
-	}
+	}/* else
+	  assert(o.eq(objects(id)) && !arrays.contains(id), o + " " + { if (o.eq(objects(id))) arrays(id) else objects(id) } + " in " + (new Printer(Map.empty, true)).stringOfMemory(new Memory(mem)))*/
       case _ => ()
     }
     def getObjectsAndArrays(values: Iterable[Value]) = values foreach getObjectAndArray

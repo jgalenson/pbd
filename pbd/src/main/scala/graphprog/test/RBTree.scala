@@ -275,6 +275,9 @@ object RBTree {
       val postList = treeToList(postTree)
       checkTreeInvariant(postTree) && preList != postList && postList.isDefined && postList.forall{ l => holdsOverIterable(l, (n1: Int, n2: Int) => n1 <= n2) }
     }
+    def fullTreeInsertPostcondition(args: Map[String, Value], resMap: Map[String, Value], rv: Value): Boolean = {
+      treeInsertPostcondition(args, resMap, rv) && treeToList(resMap("tree").asInstanceOf[Object].fields("root")) == treeToList(args("tree").asInstanceOf[Object].fields("root")).map{ argTree => (args("z").asInstanceOf[Object].fields("value").asInstanceOf[IntConstant].n :: argTree).sorted }
+    }
 
     val tree = simpleBinaryTree
     val z = setParentPointers(makeNode(13, 13, Null, Null), Null)
@@ -317,6 +320,9 @@ object RBTree {
       val x = setParentPointers(makeNode(allValues.size + 1, v, UNK, Null, Null), Null)
       List(("tree", tree), ("x" -> x))
     })
+    def fullRBInsertPostcondition(args: Map[String, Value], resMap: Map[String, Value], rv: Value): Boolean = {
+      treeToList(resMap("tree").asInstanceOf[Object].fields("root")) == treeToList(args("tree").asInstanceOf[Object].fields("root")).map{ argTree => (args("x").asInstanceOf[Object].fields("value").asInstanceOf[IntConstant].n :: argTree).sorted }
+    }
 
     val tree = simpleRBTree
     val x = setParentPointers(makeNode(4, 4, UNK, Null, Null), Null)
@@ -364,7 +370,7 @@ object RBTree {
       LiteralExpr(Call("checkTreeInvariant", List(FieldAccess("tree", "root")))),
       LiteralExpr(Call("checkRedBlackInvariant", List(FieldAccess("tree", "root"))))
     )), rbInsertGenerator, rbtreeFieldLayout, options)*/
-    test("rbInsert", UnitType, List(("tree" -> tree), ("x" -> x)), rbInsertGenerator, None, None, mapOfPrograms(treeInsertProgram, leftRotateProgram, rightRotateProgram, grandparentProgram, checkTreeInvariantProgram, checkRedBlackInvariantProgram), rbtreeTypes, rbtreeFieldLayout, options)
+    test("rbInsert", UnitType, List(("tree" -> tree), ("x" -> x)), rbInsertGenerator, None, Some(fullRBInsertPostcondition), mapOfPrograms(treeInsertProgram, leftRotateProgram, rightRotateProgram, grandparentProgram, checkTreeInvariantProgram, checkRedBlackInvariantProgram), rbtreeTypes, rbtreeFieldLayout, options)
 
   }
   
