@@ -1,13 +1,13 @@
-package graphprog.test
+package pbd.test
 
 object Graph {
 
-  import graphprog.Controller
-  import graphprog.Controller._
-  import graphprog.lang.AST._
-  import graphprog.lang.Printer
-  import graphprog.synthesis.Synthesis._
-  import graphprog.Utils._
+  import pbd.Controller
+  import pbd.Controller._
+  import pbd.lang.AST._
+  import pbd.lang.Printer
+  import pbd.synthesis.Synthesis._
+  import pbd.Utils._
   import TestCommon._
   import scala.collection.mutable.{ Map => MMap }
 
@@ -117,7 +117,7 @@ object Graph {
 
     def test(name: String, typ: Type, inputs: List[(String, Value)], generator: Option[Double => List[(String, Value)]], precondition: Option[Map[String, Value] => Boolean], postcondition: Option[(Map[String, Value], Map[String, Value], Value) => Boolean], functions: Map[String, Program], objectTypes: Map[String, List[(String, Type)]], options: Options) {
       try {
-	val result = synthesize(inputs, makeSynthesizer(name, typ, graphprog.lang.Typer.typeOfInputs(inputs), functions, objectTypes, printHelpers, generator, precondition, postcondition, graphComparator) _, functions, objectTypes, graphComparator, Map.empty[String, List[List[String]]], graphLayout, options)
+	val result = synthesize(inputs, makeSynthesizer(name, typ, pbd.lang.Typer.typeOfInputs(inputs), functions, objectTypes, printHelpers, generator, precondition, postcondition, graphComparator) _, functions, objectTypes, graphComparator, Map.empty[String, List[List[String]]], graphLayout, options)
 	println("Result:\n" + printer.stringOfProgram(result))
       } catch {
 	case e: Throwable => e.printStackTrace

@@ -1,4 +1,4 @@
-package graphprog
+package pbd
 
 import synthesis.Synthesis
 import lang.AST.{ Action, Program, Trace, Value, Stmt, Type, Object, Iterate, Loop, Expr, Primitive }
@@ -11,7 +11,7 @@ import scala.collection.immutable.Map
 import scala.collection.{ Map => TMap }
 import Utils._
 
-protected[graphprog] class Controller(private val synthesisCreator: Controller => Synthesis, private val helperFunctions: Map[String, Program], private val objectTypes: Map[String, List[(String, Type)]], private val objectComparators: Map[String, (Value, Value) => Int], private val fieldLayouts: Map[String, List[List[String]]], private val objectLayouts: Map[String, ObjectLayout], @transient private var options: Options) extends Serializable {
+protected[pbd] class Controller(private val synthesisCreator: Controller => Synthesis, private val helperFunctions: Map[String, Program], private val objectTypes: Map[String, List[(String, Type)]], private val objectComparators: Map[String, (Value, Value) => Int], private val fieldLayouts: Map[String, List[List[String]]], private val objectLayouts: Map[String, ObjectLayout], @transient private var options: Options) extends Serializable {
 
   @transient private var lastState: Option[(Memory, List[Stmt], Option[Stmt])] = None
   private val actionsVar = new SyncVar[ActionsInfo]
@@ -69,9 +69,9 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
   // TODO/FIXME: Use manually-executed actionsAfterJoin to prune corresponding PossibilityHoles, if any (test on sort: I join on j:=j+1, which should prune j:=min+1).
   // Returns a function that, given the actions executed since the conditional ended, finds the legal join points.
   def insertConditionalAtPoint(): ConditionalInfo = {
-    import graphprog.lang.{ Executor, Printer }
-    import graphprog.lang.AST.{ If, UnseenExpr, UnseenStmt, UnknownJoinIf, BooleanConstant }
-    import graphprog.lang.ASTUtils.{ addBlock, getOwningStmt }
+    import pbd.lang.{ Executor, Printer }
+    import pbd.lang.AST.{ If, UnseenExpr, UnseenStmt, UnknownJoinIf, BooleanConstant }
+    import pbd.lang.ASTUtils.{ addBlock, getOwningStmt }
     val (initMem, code, initStmt) = lastState.get
     val realInitStmt = initStmt map { initStmt => getOwningStmt(code, initStmt) }
     val printer = new Printer(Map[String, Value => String](), true)
@@ -109,11 +109,11 @@ protected[graphprog] class Controller(private val synthesisCreator: Controller =
     })
   }
   // Called in the case where in an earlier attempt to find a join we had no legal places, so we aborted and tried the other branch.  We've seen that one before, though, and followers is a superset of what it can contain.
-  def insertConditionalAtPoint(code: List[Stmt], uif: graphprog.lang.AST.UnknownJoinIf, followers: List[Stmt]): JoinInfo = {
-    import graphprog.lang.{ Executor, Printer }
-    import graphprog.lang.AST.{ If, UnseenExpr, UnseenStmt, PossibilitiesHole, UnknownJoinIf, Not }
-    import graphprog.lang.ASTUtils.{ addBlock, getOwningStmt }
-    import graphprog.lang.Executor.simpleHoleHandler
+  def insertConditionalAtPoint(code: List[Stmt], uif: pbd.lang.AST.UnknownJoinIf, followers: List[Stmt]): JoinInfo = {
+    import pbd.lang.{ Executor, Printer }
+    import pbd.lang.AST.{ If, UnseenExpr, UnseenStmt, PossibilitiesHole, UnknownJoinIf, Not }
+    import pbd.lang.ASTUtils.{ addBlock, getOwningStmt }
+    import pbd.lang.Executor.simpleHoleHandler
     val (initMem, uifCode, initStmt) = lastState.get  // The code here has the UnknownJoinIf in it, so we use the user-given one without it.
     val realInitStmt = initStmt map { initStmt => getOwningStmt(code, initStmt) }
     val printer = new Printer(Map[String, Value => String](), true)
@@ -245,7 +245,7 @@ object Controller {
    * TODO: Improve handling of serialization.  Some fields are marked vars (e.g., options, gui in Controller ).  Some things are serialized that don't need to be (e.g. printer, executors, typer in Synthesis).
    */
 
-  protected[graphprog] def dumpBackupData(filename: String, controller: Controller, curCode: List[Stmt]) {
+  protected[pbd] def dumpBackupData(filename: String, controller: Controller, curCode: List[Stmt]) {
     import java.io.{ File, FileOutputStream, ObjectOutputStream }
     val out = new ObjectOutputStream(new FileOutputStream(filename))
     out.writeObject(controller)
@@ -267,40 +267,40 @@ object Controller {
    * The two intermediate types are the result directly returned from the GUI
    * while the non-intermediate versions are the real data we want returned.
    */
-  protected[graphprog] sealed trait ActionsInfo
-  protected[graphprog] sealed trait StmtTraceIntermediateInfo
-  protected[graphprog] sealed trait StmtTraceFinalInfo
-  protected[graphprog] sealed trait ExprTraceIntermediateInfo
-  protected[graphprog] sealed trait ExprTraceFinalInfo
-  protected[graphprog] sealed trait FixInfo  // The different things the user can do when we're in fix/debug mode.
-  protected[graphprog] sealed trait ConditionalInfo
-  protected[graphprog] sealed trait JoinInfo
-  protected[graphprog] sealed trait LoopIntermediateInfo
-  protected[graphprog] sealed trait LoopFinalInfo
-  protected[graphprog] case class Actions(actions: List[Action]) extends ActionsInfo
-  protected[graphprog] case class StmtIntermediateInfo(stmtInfo: (List[Action], TMap[Iterate, Loop], Memory)) extends StmtTraceIntermediateInfo
-  protected[graphprog] case class StmtInfo(stmtInfo: (List[Action], List[Stmt], Memory)) extends StmtTraceFinalInfo with LoopIntermediateInfo
-  protected[graphprog] case class ExprIntermediateInfo(exprInfo: (Expr, Memory)) extends ExprTraceIntermediateInfo
-  protected[graphprog] case class ExprInfo(exprInfo: (Expr, Expr, Memory)) extends ExprTraceFinalInfo
-  protected[graphprog] case class CodeInfo(code: List[Stmt]) extends FixInfo with JoinInfo
-  protected[graphprog] case object Fix extends ActionsInfo with StmtTraceIntermediateInfo with StmtTraceFinalInfo with ExprTraceIntermediateInfo with ExprTraceFinalInfo
-  protected[graphprog] case object Step extends FixInfo
-  protected[graphprog] case object Continue extends FixInfo
-  protected[graphprog] case object EndConditional extends FixInfo
-  protected[graphprog] case class EndTrace(sameInput: Boolean, saveChanges: Boolean) extends ActionsInfo with StmtTraceIntermediateInfo with StmtTraceFinalInfo with ExprTraceIntermediateInfo with ExprTraceFinalInfo with FixInfo with ConditionalInfo with JoinInfo with LoopIntermediateInfo with LoopFinalInfo
-  protected[graphprog] case class JoinFinderInfo(memory: Memory, joinFinder: List[Action] => Option[List[Stmt]]) extends ConditionalInfo
-  protected[graphprog] case class LoopInfo(info: (Memory, Iterate, Loop)) extends LoopFinalInfo
-  protected[graphprog] case object FindMoreExpressions extends ActionsInfo with FixInfo
+  protected[pbd] sealed trait ActionsInfo
+  protected[pbd] sealed trait StmtTraceIntermediateInfo
+  protected[pbd] sealed trait StmtTraceFinalInfo
+  protected[pbd] sealed trait ExprTraceIntermediateInfo
+  protected[pbd] sealed trait ExprTraceFinalInfo
+  protected[pbd] sealed trait FixInfo  // The different things the user can do when we're in fix/debug mode.
+  protected[pbd] sealed trait ConditionalInfo
+  protected[pbd] sealed trait JoinInfo
+  protected[pbd] sealed trait LoopIntermediateInfo
+  protected[pbd] sealed trait LoopFinalInfo
+  protected[pbd] case class Actions(actions: List[Action]) extends ActionsInfo
+  protected[pbd] case class StmtIntermediateInfo(stmtInfo: (List[Action], TMap[Iterate, Loop], Memory)) extends StmtTraceIntermediateInfo
+  protected[pbd] case class StmtInfo(stmtInfo: (List[Action], List[Stmt], Memory)) extends StmtTraceFinalInfo with LoopIntermediateInfo
+  protected[pbd] case class ExprIntermediateInfo(exprInfo: (Expr, Memory)) extends ExprTraceIntermediateInfo
+  protected[pbd] case class ExprInfo(exprInfo: (Expr, Expr, Memory)) extends ExprTraceFinalInfo
+  protected[pbd] case class CodeInfo(code: List[Stmt]) extends FixInfo with JoinInfo
+  protected[pbd] case object Fix extends ActionsInfo with StmtTraceIntermediateInfo with StmtTraceFinalInfo with ExprTraceIntermediateInfo with ExprTraceFinalInfo
+  protected[pbd] case object Step extends FixInfo
+  protected[pbd] case object Continue extends FixInfo
+  protected[pbd] case object EndConditional extends FixInfo
+  protected[pbd] case class EndTrace(sameInput: Boolean, saveChanges: Boolean) extends ActionsInfo with StmtTraceIntermediateInfo with StmtTraceFinalInfo with ExprTraceIntermediateInfo with ExprTraceFinalInfo with FixInfo with ConditionalInfo with JoinInfo with LoopIntermediateInfo with LoopFinalInfo
+  protected[pbd] case class JoinFinderInfo(memory: Memory, joinFinder: List[Action] => Option[List[Stmt]]) extends ConditionalInfo
+  protected[pbd] case class LoopInfo(info: (Memory, Iterate, Loop)) extends LoopFinalInfo
+  protected[pbd] case object FindMoreExpressions extends ActionsInfo with FixInfo
 
-  protected[graphprog] sealed abstract class QueryType
-  protected[graphprog] case object Actions extends QueryType
-  protected[graphprog] case object StmtTrace extends QueryType
-  protected[graphprog] case object ExprTrace extends QueryType
-  protected[graphprog] case object FixType extends QueryType
+  protected[pbd] sealed abstract class QueryType
+  protected[pbd] case object Actions extends QueryType
+  protected[pbd] case object StmtTrace extends QueryType
+  protected[pbd] case object ExprTrace extends QueryType
+  protected[pbd] case object FixType extends QueryType
 
-  protected[graphprog] abstract class Breakpoint { val line: Stmt }
-  protected[graphprog] case class NormalBreakpoint(line: Stmt) extends Breakpoint
-  protected[graphprog] case class ConditionalBreakpoint(line: Stmt, condition: Expr) extends Breakpoint
+  protected[pbd] abstract class Breakpoint { val line: Stmt }
+  protected[pbd] case class NormalBreakpoint(line: Stmt) extends Breakpoint
+  protected[pbd] case class ConditionalBreakpoint(line: Stmt, condition: Expr) extends Breakpoint
 
   class Options(val dumpBackupData: Option[String], val loadBackupData: Option[String], val extraArgs: List[String])
 

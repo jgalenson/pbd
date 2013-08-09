@@ -1,14 +1,14 @@
-package graphprog.gui.controls
+package pbd.gui.controls
 
 import java.awt.event.{ ActionEvent, ActionListener, KeyEvent }
 import javax.swing.{ JMenu, JMenuBar, JMenuItem, KeyStroke, JOptionPane, JButton, JLabel, JTextField, JPanel, Box }
-import graphprog.lang.AST.Program
-import graphprog.lang.Compiler.parseOpt
-import graphprog.gui.{ Prog, BinaryOp, UnaryOp }
-import graphprog.gui.SynthesisGUI
-import graphprog.gui.SynthesisGUI.showInputDialog
-import graphprog.Controller._
-import graphprog.Utils._
+import pbd.lang.AST.Program
+import pbd.lang.Compiler.parseOpt
+import pbd.gui.{ Prog, BinaryOp, UnaryOp }
+import pbd.gui.SynthesisGUI
+import pbd.gui.SynthesisGUI.showInputDialog
+import pbd.Controller._
+import pbd.Utils._
 
 private class Menu(private val synthesisGUI: SynthesisGUI, private val controls: Controls, private val functions: Iterable[Program]) extends JMenuBar {
 
@@ -54,7 +54,7 @@ private class Menu(private val synthesisGUI: SynthesisGUI, private val controls:
   private def addTraceMenu() {
     trace.setMnemonic(KeyEvent.VK_T)
 
-    import graphprog.lang.AST.{ IntConstant, BooleanConstant }
+    import pbd.lang.AST.{ IntConstant, BooleanConstant }
 
     setupControl(new JMenuItem("Re-layout objects"), trace, _ => synthesisGUI.layoutObjects(), KeyEvent.VK_R)
 
@@ -555,7 +555,7 @@ protected[gui] class Controls(private val synthesisGUI: SynthesisGUI, private va
 
 private object Controls {
 
-  import graphprog.lang.AST.{ Plus, Minus, Times, Div, EQ, NE, LT, LE, GT, GE, And, Or, Not, Var, IntType, BooleanType, GenericType, Action }
+  import pbd.lang.AST.{ Plus, Minus, Times, Div, EQ, NE, LT, LE, GT, GE, And, Or, Not, Var, IntType, BooleanType, GenericType, Action }
 
   val builtins = List(BinaryOp("+", (l, r) => Plus(l, r), (IntType, IntType)),
 		      BinaryOp("-", (l, r) => Minus(l, r), (IntType, IntType)),
@@ -587,7 +587,7 @@ private object Controls {
     override def toString: String = "iteration"
   }
 
-  def skipTrace(gui: SynthesisGUI, queryType: graphprog.Controller.QueryType) {
+  def skipTrace(gui: SynthesisGUI, queryType: pbd.Controller.QueryType) {
     val restartOptions = Array[Object]("Restart", "Abort", "Cancel")
     val restart = JOptionPane.showOptionDialog(gui, "Do you want to restart the same trace or abort and get a new input?", "Restart or abort?", JOptionPane.YES_NO_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE, null, restartOptions, restartOptions(2))
     if (restart == 2)

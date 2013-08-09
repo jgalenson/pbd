@@ -1,19 +1,19 @@
-package graphprog.test
+package pbd.test
 
 object GuiTest {
 
-  import graphprog.Controller
-  import graphprog.Controller._
-  import graphprog.lang.AST._
-  import graphprog.lang.Memory
-  import graphprog.synthesis.Synthesis._
-  import graphprog.Utils._
+  import pbd.Controller
+  import pbd.Controller._
+  import pbd.lang.AST._
+  import pbd.lang.Memory
+  import pbd.synthesis.Synthesis._
+  import pbd.Utils._
   import scala.collection.immutable.{ Map => IMap }
   import scala.collection.mutable.Map
-  import graphprog.Controller.ObjectLayout
+  import pbd.Controller.ObjectLayout
   import TestCommon._
 
-  val printer = new graphprog.lang.Printer(Map[String, Value => String](), false)
+  val printer = new pbd.lang.Printer(Map[String, Value => String](), false)
 
   def mapOfPrograms(programs: Program*): IMap[String, Program] = programs.map{ p => (p.name, p) }.toMap
 
@@ -31,7 +31,7 @@ object GuiTest {
 
   def testSynthesis(name: String, typ: Type, inputs: List[(String, Value)], functions: IMap[String, Program], objectTypes: IMap[String, List[(String, Type)]], postcondition: Option[(IMap[String, Value], IMap[String, Value], Value) => Boolean], objectComparators: IMap[String, (Value, Value) => Int], fieldLayouts: IMap[String, List[List[String]]], objectLayouts: IMap[String, ObjectLayout], options: Options) {
     try {
-      val result = synthesize((new Memory(inputs)).toIterator.toList, makeSynthesizer(name, typ, graphprog.lang.Typer.typeOfInputs(inputs), functions, objectTypes, postcondition = postcondition, objectComparators = objectComparators) _, functions, objectTypes, objectComparators, fieldLayouts, objectLayouts, options)
+      val result = synthesize((new Memory(inputs)).toIterator.toList, makeSynthesizer(name, typ, pbd.lang.Typer.typeOfInputs(inputs), functions, objectTypes, postcondition = postcondition, objectComparators = objectComparators) _, functions, objectTypes, objectComparators, fieldLayouts, objectLayouts, options)
       println("Result:\n" + printer.stringOfProgram(result))
     } catch {
       case e: Throwable => e.printStackTrace

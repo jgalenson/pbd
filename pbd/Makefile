@@ -1,7 +1,7 @@
-default : fast
+default : slow
 
 slow :
-	scalac -feature -deprecation -unchecked -d target/scala-2.10/classes src/main/scala/graphprog/{*.scala,*/*.scala}
+	scalac -feature -deprecation -unchecked -d target/scala-2.10/classes src/main/scala/pbd/{*.scala,*/*.scala}
 
 fast :
-	fsc -feature -deprecation -unchecked -d target/scala-2.10/classes src/main/scala/graphprog/{*.scala,*/*.scala}
+	fsc -feature -deprecation -unchecked -d target/scala-2.10/classes src/main/scala/pbd/{*.scala,*/*.scala}

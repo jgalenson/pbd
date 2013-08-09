@@ -1,16 +1,16 @@
-package graphprog.test
+package pbd.test
 
 object TestSynthesis {
 
   import scala.collection.immutable.{ Map => IMap }
   import scala.collection.mutable.{ Map => MMap }
-  import graphprog.lang.AST._
-  import graphprog.lang.{ Executor, Memory, Printer, Typer }
-  import graphprog.synthesis.CodeGenerator
-  import graphprog.synthesis.Synthesis.makeSynthesizerFromTrace
-  import graphprog.test.TestCommon._
-  import graphprog.Controller.{ Options, synthesize }
-  import graphprog.Utils._
+  import pbd.lang.AST._
+  import pbd.lang.{ Executor, Memory, Printer, Typer }
+  import pbd.synthesis.CodeGenerator
+  import pbd.synthesis.Synthesis.makeSynthesizerFromTrace
+  import pbd.test.TestCommon._
+  import pbd.Controller.{ Options, synthesize }
+  import pbd.Utils._
 
   def main(args: Array[String]) {
     val options = parseCommandLine(args)

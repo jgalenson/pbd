@@ -1,4 +1,4 @@
-package graphprog.gui
+package pbd.gui
 
 import java.awt.{ Color, Graphics, Graphics2D, Rectangle }
 import javax.swing.{ JPanel }
@@ -6,16 +6,16 @@ import scala.collection.mutable.{ Map, Set, ListBuffer }
 import scala.collection.immutable.{ Map => IMap, Set => ISet }
 import Canvas._
 import Shape._
-import graphprog.lang.AST.{ Program, Type, Value }
-import graphprog.Utils._
-import graphprog.Controller._
+import pbd.lang.AST.{ Program, Type, Value }
+import pbd.Utils._
+import pbd.Controller._
 import scala.collection.{ Map => TMap }
 
 // TODO: Improve layout.  Maybe remove code from createShape and instead add a new function that movies things that have been created (and call it after creating all of them).
 protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFunctions: IMap[String, Program], private val objectTypes: IMap[String, List[(String, Type)]], private val objectComparators: IMap[String, (Value, Value) => Int], private val fieldLayouts: IMap[String, List[List[String]]], private val objectLayouts: IMap[String, ObjectLayout]) extends JPanel {
 
-  import graphprog.lang.AST.{ Action, ArrayValue, IntConstant, Null, Object, Primitive, Value, Assign, Var => ASTVar, Call, HeapValue, Expr, Stmt, Iterate, Loop, BooleanConstant, UnorderedStmts }
-  import graphprog.lang.{ Printer, Executor, Typer, Memory }
+  import pbd.lang.AST.{ Action, ArrayValue, IntConstant, Null, Object, Primitive, Value, Assign, Var => ASTVar, Call, HeapValue, Expr, Stmt, Iterate, Loop, BooleanConstant, UnorderedStmts }
+  import pbd.lang.{ Printer, Executor, Typer, Memory }
   import java.awt.event.{ MouseAdapter, MouseEvent, MouseMotionAdapter, MouseWheelListener, MouseWheelEvent, KeyAdapter, KeyEvent }
   import scala.annotation.tailrec
 
@@ -437,7 +437,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     mode match {
       case mode: StmtTrace => mode.curBlocks match {
 	case ConditionalTrace(None, _) :: _ => isUnfinishedCall(lhs)  // We need an expression (not an assignment) for the condition, so we can only drag to calls.
-	case LoopTrace(None, _, _) :: _ => isUnfinishedCall(lhs) || (lhs.isInstanceOf[Var] && typer.typeOfValue(shapeToValue(rhs)) == graphprog.lang.AST.IntType)  // Lop conditions can be integer assignments.
+	case LoopTrace(None, _, _) :: _ => isUnfinishedCall(lhs) || (lhs.isInstanceOf[Var] && typer.typeOfValue(shapeToValue(rhs)) == pbd.lang.AST.IntType)  // Lop conditions can be integer assignments.
 	case _ => shapesCanReceive(lhs, rhs, typer, false)
       }
       case _: ExprTrace => shapesCanReceive(lhs, rhs, typer, true)
@@ -484,11 +484,11 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
   private def doExpr(mode: Trace, shape: Shape) {
     val isLegalExpr = mode match {
       case mode: StmtTrace => mode.curBlocks match {
-	case ConditionalTrace(None, _) :: _ => typer.canAssign(graphprog.lang.AST.BooleanType, shapeToValue(shape))  // If we are waiting for a condition, only allow boolean exprs.
-	case LoopTrace(None, _, _) :: _ => typer.canAssign(graphprog.lang.AST.BooleanType, shapeToValue(shape))  // Loop conditions must be boolean expressions (or integer assignments, but that's a release, not a click).
+	case ConditionalTrace(None, _) :: _ => typer.canAssign(pbd.lang.AST.BooleanType, shapeToValue(shape))  // If we are waiting for a condition, only allow boolean exprs.
+	case LoopTrace(None, _, _) :: _ => typer.canAssign(pbd.lang.AST.BooleanType, shapeToValue(shape))  // Loop conditions must be boolean expressions (or integer assignments, but that's a release, not a click).
 	case _ => true
       }
-      case _: ExprTrace => typer.canAssign(graphprog.lang.AST.BooleanType, shapeToValue(shape))  // If we are waiting for an expression, only allow boolean exprs.  TODO: Or should I allow any expression?  I currently only use this to fill in conditions, but in the future I could conceivably use it for other things.
+      case _: ExprTrace => typer.canAssign(pbd.lang.AST.BooleanType, shapeToValue(shape))  // If we are waiting for an expression, only allow boolean exprs.  TODO: Or should I allow any expression?  I currently only use this to fill in conditions, but in the future I could conceivably use it for other things.
     }
     if (isLegalExpr)
       doTraceAction(shapeToExpr(shape, mode.literalShapes), mode)
@@ -550,7 +550,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
   }
   // Generates the AST Action from the given block.  If extraAction is defined, use it as the last action in this block.
   private def blockToAction(block: TraceBlock, extraAction: Option[Action]): Action = {
-    import graphprog.lang.AST.{ Snapshot, Conditional, UnseenExpr, UnseenStmt }
+    import pbd.lang.AST.{ Snapshot, Conditional, UnseenExpr, UnseenStmt }
     block match {
       case UnorderedTrace(_, s) => UnorderedStmts(s.toList ++ extraAction.toList)
       case SnapshotTrace => Snapshot(makeMemory())
@@ -561,7 +561,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     }
   }
   // If markCurStmt is true, we put an UnseenExpr as the current/final statement.
-  private def getTraceModeActions(mode: StmtTrace, markCurStmt: Boolean): List[Action] = mode.actions.toList ++ mode.curBlocks.foldLeft(if (markCurStmt) Some(graphprog.lang.AST.UnseenExpr(): Action) else None){ (acc, cur) => Some(blockToAction(cur, acc)) }.toList
+  private def getTraceModeActions(mode: StmtTrace, markCurStmt: Boolean): List[Action] = mode.actions.toList ++ mode.curBlocks.foldLeft(if (markCurStmt) Some(pbd.lang.AST.UnseenExpr(): Action) else None){ (acc, cur) => Some(blockToAction(cur, acc)) }.toList
   private def setGuiCurrentStmts(mode: StmtTrace) = gui.setCurrentStmts(getTraceModeActions(mode, true))
 
   override def paintComponent(g: Graphics) {
@@ -1018,7 +1018,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
   // TODO: Sort newly-created shapes so that they always appear in the same order (e.g. so we can't have two questions with the same answers with the orders reversed, e.g. true above false then false above true).
   def setPossibilities(possibilities: List[Action]): Unit = setPossibilities(possibilities, makeMemory(), getGraphics().asInstanceOf[Graphics2D])
   private def setPossibilities(possibilities: List[Action], mem: Memory, g: Graphics2D): Unit = {
-    import graphprog.lang.AST.{ Expr, ArrayAccess, FieldAccess, ArrayLength, Call, LVal }
+    import pbd.lang.AST.{ Expr, ArrayAccess, FieldAccess, ArrayLength, Call, LVal }
     val newModeVars = Map.empty[String, Var]
     val newPrimitives = Map.empty[Primitive, Shape]
     val newCalls = Map.empty[(String, List[Expr]), Shape]
@@ -1246,7 +1246,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
   // TODO/FIXME: Here (and in AST and friends) add ++ so I can increment vars more easily and without using a constant 1 that could be a standin.
   // TODO: I currently do exprs by default (see Control.scala).  Should I really do that?
   def addAction(a: Action, shouldDoExpr: Boolean): Boolean = {
-    import graphprog.lang.AST.{ BinaryOp, Not, ArrayAccess, FieldAccess, ArrayLength, ObjectID, ArrayID, Range, In, TLiteral }
+    import pbd.lang.AST.{ BinaryOp, Not, ArrayAccess, FieldAccess, ArrayLength, ObjectID, ArrayID, Range, In, TLiteral }
     case class IllegalAction(msg: String) extends RuntimeException
     val curMode = mode.asInstanceOf[Trace]
     val curNewShapes = Set.empty[Shape]
@@ -1392,7 +1392,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
   }
 
   def showMemoryDiff(newMemory: Memory, exprValue: Option[Primitive]) {
-    val (newVars, modObjs, modArrs) = graphprog.lang.ASTUtils.diffMemories(makeMemory(), newMemory)
+    val (newVars, modObjs, modArrs) = pbd.lang.ASTUtils.diffMemories(makeMemory(), newMemory)
     def addDiffArrow(a: Arrow, p: Pointer, pointerOwnsArrow: Boolean) {
       diffArrows += a
       if (!pointerOwnsArrow)

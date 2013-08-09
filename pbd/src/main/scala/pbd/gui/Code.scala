@@ -1,4 +1,4 @@
-package graphprog.gui
+package pbd.gui
 
 import java.awt.Color
 import javax.swing.{ JList, DefaultListModel, DefaultListCellRenderer, ListCellRenderer }
@@ -6,10 +6,10 @@ import Code._
 
 protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, private val model: DefaultListModel[ListData]) extends JList[ListData](model) {
 
-  import graphprog.lang.AST.{ Stmt, Value, If }
-  import graphprog.lang.{ Printer, PrettyPrinter }
-  import graphprog.Utils._
-  import graphprog.Controller.{ Breakpoint, NormalBreakpoint, ConditionalBreakpoint }
+  import pbd.lang.AST.{ Stmt, Value, If }
+  import pbd.lang.{ Printer, PrettyPrinter }
+  import pbd.Utils._
+  import pbd.Controller.{ Breakpoint, NormalBreakpoint, ConditionalBreakpoint }
 
   private var elems: List[ListData] = Nil
 
@@ -39,9 +39,9 @@ protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, priva
     import java.awt.event.{ MouseAdapter, MouseEvent }
     addMouseListener(new MouseAdapter {
       import javax.swing.{ JPopupMenu, JMenuItem }
-      import graphprog.lang.Compiler.parseOpt
-      import graphprog.gui.SynthesisGUI.{ showInputDialog, showError }
-      import graphprog.lang.AST.Expr
+      import pbd.lang.Compiler.parseOpt
+      import pbd.gui.SynthesisGUI.{ showInputDialog, showError }
+      import pbd.lang.AST.Expr
 
       private var cur: Option[ListData] = None
 
@@ -110,7 +110,7 @@ protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, priva
 
   // TODO: This code is ugly.  Clean it up and combine similar parts.
   def showCode(replacementStmts: Option[Iterable[Stmt]]) = {
-    import graphprog.lang.AST.{ Conditional, Iterate, If, Loop, UnorderedStmts, Action, Expr, Unseen, PossibilitiesHole, UnknownJoinIf }
+    import pbd.lang.AST.{ Conditional, Iterate, If, Loop, UnorderedStmts, Action, Expr, Unseen, PossibilitiesHole, UnknownJoinIf }
     replacedStmts = (curStmt, replacementStmts) match {
       case (Some(curStmt), Some(replacementStmts)) =>
 	def replaceAction(a: Action): List[Action] = a match {
@@ -214,7 +214,7 @@ private object Code {
   val CUR_COLOR = "blue"
   val FAILING_COLOR = "red"
 
-  import graphprog.lang.AST.Stmt
+  import pbd.lang.AST.Stmt
 
   case class ListData(stmt: Stmt, parent: Option[Stmt], displayStr: String, tooltipStr: Option[String], isExecutable: Boolean)
 

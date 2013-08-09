@@ -1,4 +1,4 @@
-package graphprog
+package pbd
 
 object Utils {
 
@@ -30,7 +30,7 @@ object Utils {
     try {
       NormalResult(task.get(timeout, TimeUnit.MILLISECONDS))
     } catch {
-      case _: TimeoutException | _: graphprog.lang.Executor.InterruptedException => Timeout
+      case _: TimeoutException | _: pbd.lang.Executor.InterruptedException => Timeout
       case e: ExecutionException => ExceptionThrown(e.getCause)
     } finally {
       task.cancel(true)

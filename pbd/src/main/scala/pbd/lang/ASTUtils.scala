@@ -1,13 +1,13 @@
-package graphprog.lang
+package pbd.lang
 
 import AST._
-import graphprog.Utils._
+import pbd.Utils._
 
-protected[graphprog] class Printer(helpers: PartialFunction[String, Value => String], short: Boolean) extends Serializable {
+protected[pbd] class Printer(helpers: PartialFunction[String, Value => String], short: Boolean) extends Serializable {
 
   import scala.collection.immutable.Map
   import scala.collection.immutable.Set
-  import graphprog.lang.Memory
+  import pbd.lang.Memory
 
   private def stringOfType(t: Type): String = t match {
     case ErrorType => "ERROR"
@@ -19,7 +19,7 @@ protected[graphprog] class Printer(helpers: PartialFunction[String, Value => Str
     case ObjectType(name) => name
     case GenericType => "?"
   }
-  protected[graphprog] def stringOfValue(v: Value, seen: Set[Object] = Set.empty): String = v match {
+  protected[pbd] def stringOfValue(v: Value, seen: Set[Object] = Set.empty): String = v match {
     case p: Primitive => ASTUtils.stringOfPrimitive(p)
     case ErrorConstant => "ERROR"
     case AssumeFailed => "assume failed"
@@ -35,7 +35,7 @@ protected[graphprog] class Printer(helpers: PartialFunction[String, Value => Str
       }
     case Null => "null"
   }
-  protected[graphprog] def stringOfExpr(e: Expr): String = {
+  protected[pbd] def stringOfExpr(e: Expr): String = {
     // Helper so that we use parentheses to show precedence.
     def stringOfOperand(o: Expr): String = o match {
       case _: BinaryOp => "(" + stringOfExpr(o) + ")"
@@ -79,7 +79,7 @@ protected[graphprog] class Printer(helpers: PartialFunction[String, Value => Str
     case _ => " {\n" + stringOfStmts(b, indent + "  ") + "\n" + indent + "}"
   }
   private def stringOfPath(c: Action, b: List[Stmt], prefix: String, indent: String = ""): String = prefix + " (" + stringOfAction(c) + ")" + stringOfBody(b, indent)
-  protected[graphprog] def stringOfAction(a: Action, indent: String = ""): String = a match {
+  protected[pbd] def stringOfAction(a: Action, indent: String = ""): String = a match {
     case e: Expr => stringOfExpr(e)
     case h: Hole => stringOfHole(h)
     case Assign(lhs, rhs) => stringOfExpr(lhs) + " := " + stringOfExpr(rhs)
@@ -93,13 +93,13 @@ protected[graphprog] class Printer(helpers: PartialFunction[String, Value => Str
     case UnorderedStmts(s) => "unordered" + stringOfBody(s, indent)
     case Snapshot(m) => "snapshot " + stringOfMemory(m)
   }
-  protected[graphprog] def stringOfHole(h: Hole) = h match {
+  protected[pbd] def stringOfHole(h: Hole) = h match {
     case ExprEvidenceHole(evidence) => "Hole(" + iterableToString(evidence, " and ", { t: (Action, Memory) => stringOfAction(t._1, "") + " with " + stringOfMemory(t._2) }) + ")"
     case StmtEvidenceHole(evidence) => "Hole(" + iterableToString(evidence, " and ", { t: (Action, Memory) => stringOfAction(t._1, "") + " with " + stringOfMemory(t._2) }) + ")"
     case PossibilitiesHole(possibilities) => "Hole(" + iterableToString(possibilities, " or ", { s: Stmt => stringOfStmt(s, "") }) + ")"
     case _: Unseen => "?"
   }
-  protected[graphprog] def stringOfStmt(s: Stmt, indent: String = ""): String = indent + (s match {
+  protected[pbd] def stringOfStmt(s: Stmt, indent: String = ""): String = indent + (s match {
     case a: Action => stringOfAction(a, indent)
     case h: Hole => stringOfHole(h)
     case If(condition, thenBranch, elseIfPaths, elseBranch) =>
@@ -110,15 +110,15 @@ protected[graphprog] class Printer(helpers: PartialFunction[String, Value => Str
       val s = stringOfStmt(i, indent) + (if (u.nonEmpty) "\n" + indent + "unknown" + stringOfBody(u, indent) else "")
       s.replaceAll("}\nunknown", "} unknown")
   })
-  protected[graphprog] def stringOfStmts(stmts: Iterable[Stmt], indent: String = ""): String = iterableToString(stmts, "\n", { s: Stmt => stringOfStmt(s, indent) })
-  protected[graphprog] def stringOfInputs(inputs: List[(String, Value)], sep: String) = iterableToString(inputs, sep, { t: (String, Value) => "input " + t._1 + " -> " + stringOfValue(t._2) })
-  protected[graphprog] def stringOfProgram(program: Program): String = "def " + program.name + "(" + iterableToString(program.inputs, ", ", { i: (String, Type) => "input " + i._1 + ": " + stringOfType(i._2) }) + ") {\n" + stringOfStmts(program.stmts, "  ") + "\n}"
-  protected[graphprog] def stringOfTrace(trace: Trace): String = "name " + trace.name + "\n" + stringOfInputs(trace.inputs, "\n") + "\n" + stringOfStmts(trace.actions)
-  protected[graphprog] def stringOfMemory(memory: Memory): String = "Mem(" + iterableToString(memory.keys.sorted, ", ", (key: String) => key + " -> " + stringOfValue(memory(key))) + ")"
+  protected[pbd] def stringOfStmts(stmts: Iterable[Stmt], indent: String = ""): String = iterableToString(stmts, "\n", { s: Stmt => stringOfStmt(s, indent) })
+  protected[pbd] def stringOfInputs(inputs: List[(String, Value)], sep: String) = iterableToString(inputs, sep, { t: (String, Value) => "input " + t._1 + " -> " + stringOfValue(t._2) })
+  protected[pbd] def stringOfProgram(program: Program): String = "def " + program.name + "(" + iterableToString(program.inputs, ", ", { i: (String, Type) => "input " + i._1 + ": " + stringOfType(i._2) }) + ") {\n" + stringOfStmts(program.stmts, "  ") + "\n}"
+  protected[pbd] def stringOfTrace(trace: Trace): String = "name " + trace.name + "\n" + stringOfInputs(trace.inputs, "\n") + "\n" + stringOfStmts(trace.actions)
+  protected[pbd] def stringOfMemory(memory: Memory): String = "Mem(" + iterableToString(memory.keys.sorted, ", ", (key: String) => key + " -> " + stringOfValue(memory(key))) + ")"
 
 }
 
-protected[graphprog] class PrettyPrinter(helpers: PartialFunction[String, Value => String], short: Boolean) extends Printer(helpers, short) {
+protected[pbd] class PrettyPrinter(helpers: PartialFunction[String, Value => String], short: Boolean) extends Printer(helpers, short) {
 
   override def stringOfHole(h: Hole) = h match {
     case PossibilitiesHole(possibilities) if possibilities.nonEmpty => prettyStringOfPossibilities(possibilities)
@@ -146,10 +146,10 @@ protected[graphprog] class PrettyPrinter(helpers: PartialFunction[String, Value 
 
 }
 
-protected[graphprog] class Typer(functions: Map[String, Program], objectTypes: Map[String, List[(String, Type)]]) extends Serializable {
+protected[pbd] class Typer(functions: Map[String, Program], objectTypes: Map[String, List[(String, Type)]]) extends Serializable {
 
-  protected[graphprog] def typeOfValue(v: Value): Type = Typer.typeOfValue(v)
-  protected[graphprog] def typeOfExpr(e: Expr, memory: Memory): Type = e match {
+  protected[pbd] def typeOfValue(v: Value): Type = Typer.typeOfValue(v)
+  protected[pbd] def typeOfExpr(e: Expr, memory: Memory): Type = e match {
     case Var(name) => typeOfValue(memory(name))
     case FieldAccess(o, f) => objectTypes(typeOfExpr(o, memory).asInstanceOf[ObjectType].name).toMap.get(f).get
     case ArrayAccess(array, _) => typeOfExpr(array, memory).asInstanceOf[ArrayType].t
@@ -169,7 +169,7 @@ protected[graphprog] class Typer(functions: Map[String, Program], objectTypes: M
     case a: Arithmetic => IntType
     case s => throw new IllegalArgumentException("Cannot get the type of stmt " + s + " without memory.")
   }
-  protected[graphprog] def typeOfAction(a: Action, memory: Memory): Type = a match {
+  protected[pbd] def typeOfAction(a: Action, memory: Memory): Type = a match {
     case e: Expr => typeOfExpr(e, memory)
     case Assign(_, rhs) => typeOfExpr(rhs, memory)
     case Assume(_) => UnitType
@@ -190,13 +190,13 @@ protected[graphprog] class Typer(functions: Map[String, Program], objectTypes: M
     case StmtEvidenceHole(_) => throw new IllegalArgumentException("Cannot get type of " + s)
   }
 
-  protected[graphprog] def canAssign(lhs: Expr, rhs: Expr): Boolean = {
+  protected[pbd] def canAssign(lhs: Expr, rhs: Expr): Boolean = {
     canAssignTypes(typeOfExprNoMemory(lhs), typeOfExprNoMemory(rhs))
   }
-  protected[graphprog] def canAssign(lhs: Type, rhs: Expr): Boolean = {
+  protected[pbd] def canAssign(lhs: Type, rhs: Expr): Boolean = {
     canAssignTypes(lhs, typeOfExprNoMemory(rhs))
   }
-  protected[graphprog] def canAssign(lhs: Expr, rhs: Expr, memory: Memory): Boolean = {
+  protected[pbd] def canAssign(lhs: Expr, rhs: Expr, memory: Memory): Boolean = {
     canAssignTypes(typeOfExpr(lhs, memory), typeOfExpr(rhs, memory))
   }
   private def canAssignTypes(l: Type, r: Type): Boolean = (l, r) match {
@@ -211,7 +211,7 @@ protected[graphprog] class Typer(functions: Map[String, Program], objectTypes: M
 
 }
 
-protected[graphprog] object Typer {
+protected[pbd] object Typer {
 
   def typeOfValue(v: Value): Type = v match {
     case ErrorConstant => ErrorType
@@ -228,9 +228,9 @@ protected[graphprog] object Typer {
 
 }
 
-/*protected[graphprog] class GraphvizHelper {
+/*protected[pbd] class GraphvizHelper {
 
-  protected[graphprog] def toGraphvizString(stmts: List[Stmt]): String = {
+  protected[pbd] def toGraphvizString(stmts: List[Stmt]): String = {
     import scala.collection.mutable.ListBuffer
     var defines = new ListBuffer[(String, String)]
     var uuidCounter = 0
@@ -328,13 +328,13 @@ object ASTUtils {
 
   import scala.collection.mutable.{ Set => MSet }
 
-  protected[graphprog] def stringOfPrimitive(p: Primitive): String = p match {
+  protected[pbd] def stringOfPrimitive(p: Primitive): String = p match {
     case IntConstant(n) => n.toString
     case BooleanConstant(b) => b.toString
     case StringConstant(s) => "\"" + s + "\""
   }
 
-  protected[graphprog] def isErrorOrFailure(v: Value): Boolean = v.isInstanceOf[IsErrorOrFailure]
+  protected[pbd] def isErrorOrFailure(v: Value): Boolean = v.isInstanceOf[IsErrorOrFailure]
 
   /**
    * Checks whether two values are equal.
@@ -347,7 +347,7 @@ object ASTUtils {
    * when you care about the result.  We only reuse it since we abort
    * whenever we hit a false.
    */
-  protected[graphprog] def areEqual(v1: Value, v2: Value, checkFields: Boolean, checkArrays: Boolean, seenObjectIDs: MSet[(Int, Int)] = MSet[(Int, Int)]()): Boolean = (v1, v2) match {
+  protected[pbd] def areEqual(v1: Value, v2: Value, checkFields: Boolean, checkArrays: Boolean, seenObjectIDs: MSet[(Int, Int)] = MSet[(Int, Int)]()): Boolean = (v1, v2) match {
     case (Object(id1, _, f1), Object(id2, _, f2)) => id1 == id2 && (!checkFields || seenObjectIDs.contains((id1, id2)) || mapsAreEqual(f1, f2, (x: Value, y: Value) => areEqual(x, y, checkFields, checkArrays, seenObjectIDs += ((id1, id2)))))
     case (ArrayValue(id1, a1, t1), ArrayValue(id2, a2, t2)) => id1 == id2 && t1 == t2 && (!checkArrays || (a1.length == a2.length && a1.toList == a2.toList))
     case (_, _) => v1 == v2
@@ -355,16 +355,16 @@ object ASTUtils {
 
   private def mapsAreEqual[T1, T2](m1: scala.collection.Map[T1, T2], m2: scala.collection.Map[T1, T2], eq: (T2, T2) => Boolean): Boolean = m1.size == m2.size && m1.forall{ kv => m2.contains(kv._1) && eq(kv._2, m2(kv._1)) }
 
-  protected[graphprog] def memoriesAreEqual(m1: Memory, m2: Memory, seenObjectIDs: MSet[(Int, Int)] = MSet[(Int, Int)]()): Boolean = {
+  protected[pbd] def memoriesAreEqual(m1: Memory, m2: Memory, seenObjectIDs: MSet[(Int, Int)] = MSet[(Int, Int)]()): Boolean = {
     m1.mem.size == m2.mem.size && m1.mem.zip(m2.mem).forall{ case (m1, m2) => mapsAreEqual(m1, m2, (x: Value, y: Value) => areEqual(x, y, true, true, seenObjectIDs)) }
   }
 
-  protected[graphprog] def areEquivalent(v1: Value, v2: Value, m1: Memory, m2: Memory): Boolean = {
+  protected[pbd] def areEquivalent(v1: Value, v2: Value, m1: Memory, m2: Memory): Boolean = {
     val seenObjectIDs = MSet[(Int, Int)]()  // Reuse the set of seen objects for efficiency
     areEqual(v1, v2, true, true, seenObjectIDs) && memoriesAreEqual(m1, m2, seenObjectIDs)
   }
 
-  protected[graphprog] def getParents(code: List[Stmt]): Map[Stmt, Option[Stmt]] = {
+  protected[pbd] def getParents(code: List[Stmt]): Map[Stmt, Option[Stmt]] = {
     def getParentsForStmts(code: List[Stmt], parent: Option[Stmt], acc: Map[Stmt, Option[Stmt]]): Map[Stmt, Option[Stmt]] = {
       def getParentsForStmt(cur: Stmt, parent: Option[Stmt], acc: Map[Stmt, Option[Stmt]]): Map[Stmt, Option[Stmt]] = (cur match {
 	case If(c, t, ei, e) => getParentsForStmts(e, Some(cur), getParentsForStmts(t, Some(cur), getParentsForStmt(c, Some(cur), acc)))  // Doesn't work with else ifs
@@ -378,7 +378,7 @@ object ASTUtils {
   }
 
   // All values this returns are from the first argument (the old memory).
-  protected[graphprog] def diffMemories(memory: Memory, newMemory: Memory): (Map[String, Value], Map[(Int, String), Value], Map[(Int, Int), Value]) = {
+  protected[pbd] def diffMemories(memory: Memory, newMemory: Memory): (Map[String, Value], Map[(Int, String), Value], Map[(Int, Int), Value]) = {
     // TODO-bug: I should really track all assigns here.  If we execute an assignment that assigns to the current value, I don't currently catch that.
     val oldKeySet = memory.keys.toSet
     val (oldObjectMap, oldArrayMap) = memory.getObjectsAndArrays()
@@ -413,7 +413,7 @@ object ASTUtils {
   }
 
   // blockMarker stores (first stmt in block, first stmt after block), which has already determined to be legal.  If the two statements are the same, the block is empty.
-  protected[graphprog] def addBlock(code: List[Stmt], blockMarker: (Option[Stmt], Option[Stmt]), blockMaker: List[Stmt] => Stmt): List[Stmt] = blockMarker._1 match {
+  protected[pbd] def addBlock(code: List[Stmt], blockMarker: (Option[Stmt], Option[Stmt]), blockMaker: List[Stmt] => Stmt): List[Stmt] = blockMarker._1 match {
     case Some(firstInBlock) =>
       var replaced = false
       def replaceStmt(s: Stmt) = s match {
@@ -445,7 +445,7 @@ object ASTUtils {
 
   // If the parameter is a condition, gets the statement that owns it.
   // The call to getParents is inefficient, but who cares.
-  protected[graphprog] def getOwningStmt(code: List[Stmt], s: Stmt): Stmt = getParents(code)(s) match {
+  protected[pbd] def getOwningStmt(code: List[Stmt], s: Stmt): Stmt = getParents(code)(s) match {
     case Some(p) => p match {
       case If(c, _, _, _) if c eq s => p
       case Loop(c, _) if c eq s => p
@@ -454,7 +454,7 @@ object ASTUtils {
     case None => s
   }
 
-  protected[graphprog] def copyBinaryOp(op: BinaryOp, newLeft: Expr, newRight: Expr): BinaryOp = op match {
+  protected[pbd] def copyBinaryOp(op: BinaryOp, newLeft: Expr, newRight: Expr): BinaryOp = op match {
     case EQ(_, _) => EQ(newLeft, newRight)
     case NE(_, _) => NE(newLeft, newRight)
     case LT(_, _) => LT(newLeft, newRight)
@@ -469,7 +469,7 @@ object ASTUtils {
     case Div(_, _) => Div(newLeft, newRight)
   }
 
-  protected[graphprog] def copyRange(r: Range, newMin: Expr, newMax: Expr): Range = r match {
+  protected[pbd] def copyRange(r: Range, newMin: Expr, newMax: Expr): Range = r match {
     case To(_, _) => To(newMin, newMax)
     case Until(_, _) => Until(newMin, newMax)
   }
@@ -481,7 +481,7 @@ object ASTUtils {
    * This is useful for ensuring that we do not have multiple copies of
    * the same object/array in the same memory.
    */
-  protected[graphprog] def getValueFromMemory(v: Value, memory: Memory) = v match {
+  protected[pbd] def getValueFromMemory(v: Value, memory: Memory) = v match {
     case Object(id, _, _) => memory.getObject(id).get
     case ArrayValue(id, _, _) => memory.getArray(id).get
     case v => v

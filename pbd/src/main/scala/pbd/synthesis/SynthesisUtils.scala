@@ -1,11 +1,11 @@
-package graphprog.synthesis
+package pbd.synthesis
 
-import graphprog.lang.AST._
+import pbd.lang.AST._
 
 object SynthesisUtils {
 
-  import graphprog.lang.{ Executor, Memory }
-  import graphprog.lang.ASTUtils._
+  import pbd.lang.{ Executor, Memory }
+  import pbd.lang.ASTUtils._
 
   protected[synthesis] def yieldEquivalentResults(memoryPre: Memory, cur: Stmt, targetOutput: Value, targetMemoryPost: Memory, executor: Executor): Boolean = {
     val (curResult, curMemoryPost) = executor.execute(memoryPre, cur)

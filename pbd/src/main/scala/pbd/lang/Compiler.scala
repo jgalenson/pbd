@@ -1,4 +1,4 @@
-package graphprog.lang
+package pbd.lang
 
 object Compiler {
   import scala.collection.mutable.{ Map => MMap, HashMap => MHashMap, Stack }
@@ -92,15 +92,15 @@ object Compiler {
 
   }
 
-  protected[graphprog] def parse(text: String): List[Action] = TraceCompiler.parse(text) match {
+  protected[pbd] def parse(text: String): List[Action] = TraceCompiler.parse(text) match {
     case result @ TraceCompiler.Success(_, _) => result.get
     case result => throw new RuntimeException("Cannot parse " + text + ".  Got: " + result.toString)
   }
-  protected[graphprog] def parseClasses(text: String): List[Type] = {
+  protected[pbd] def parseClasses(text: String): List[Type] = {
     TraceCompiler.parseClasses(text).get
   }
 
-  protected[graphprog] def parseOpt(text: String): Option[List[Action]] = {
+  protected[pbd] def parseOpt(text: String): Option[List[Action]] = {
     TraceCompiler.parse(text) match {
       case TraceCompiler.Success(r, _) => Some(r)
       case s => println(s); None

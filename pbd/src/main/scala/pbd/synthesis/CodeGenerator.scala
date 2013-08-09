@@ -1,21 +1,21 @@
-package graphprog.synthesis
+package pbd.synthesis
 
-import graphprog.lang.AST._
-import graphprog.lang.{ Executor, Memory, Printer, Typer, CachingExecutor }
+import pbd.lang.AST._
+import pbd.lang.{ Executor, Memory, Printer, Typer, CachingExecutor }
 import scala.collection.immutable.{ Map => IMap }
 import scala.collection.mutable.{ Map => MMap, ListBuffer }
 
 protected[synthesis] class CodeGenerator(private val functions: IMap[String, Program], private val shortPrinter: Printer, private val defaultExecutor: Executor, private val typer: Typer, private val enteredActions: MMap[Stmt, ListBuffer[(List[Action], Memory)]]) {
 
-  import graphprog.Utils._
-  import graphprog.lang.ASTUtils._
+  import pbd.Utils._
+  import pbd.lang.ASTUtils._
   import scala.annotation.tailrec
   import scala.collection.mutable.{ HashMap => MHashMap, Set => MSet, HashSet => MHashSet }
   import CodeGenerator._
   import SynthesisUtils._
 
   // TODO-cleanup: Ugly.
-  protected[graphprog] def genAllExprs(evidence: Iterable[(Action, Memory)], maxDepth: Int, curMemory: Option[Memory], checker: Option[(Expr, Action, Memory) => Boolean] = None): Iterable[Expr] = {
+  protected[pbd] def genAllExprs(evidence: Iterable[(Action, Memory)], maxDepth: Int, curMemory: Option[Memory], checker: Option[(Expr, Action, Memory) => Boolean] = None): Iterable[Expr] = {
     if (evidence.head._1.isInstanceOf[TLiteralExpr[_]]) {  // TODO: This should probably be in fillHoles once I have it recursing on itself for +,<,etc.
       assert(holdsOverIterable(evidence, (x: (Action, Memory), y: (Action, Memory)) => x._1 == y._1))
       return List(evidence.head._1.asInstanceOf[TLiteralExpr[Expr]].l)

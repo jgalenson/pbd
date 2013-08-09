@@ -1,24 +1,24 @@
-package graphprog.gui
+package pbd.gui
 
 import java.awt.{ BorderLayout, Dimension }
 import java.awt.event.{ WindowAdapter, WindowEvent }
 import javax.swing.{ JFrame, UIManager, WindowConstants, JLabel, JSplitPane, JScrollPane, BorderFactory, JOptionPane }
-import graphprog.gui._
+import pbd.gui._
 import SynthesisGUI._
-import graphprog.Controller
-import graphprog.Controller._
-import graphprog.lang.AST.{ Program, Type, Primitive, Value }
-import graphprog.Controller.ObjectLayout
+import pbd.Controller
+import pbd.Controller._
+import pbd.lang.AST.{ Program, Type, Primitive, Value }
+import pbd.Controller.ObjectLayout
 import scala.collection.{ Map => TMap }
 
 class SynthesisGUI private (private val controller: Controller, private val helperFunctions: Map[String, Program], private val objectTypes: Map[String, List[(String, Type)]], private val objectComparators: Map[String, (Value, Value) => Int], private val fieldLayouts: Map[String, List[List[String]]], private val objectLayouts: Map[String, ObjectLayout]) extends JFrame(TITLE) {
 
-  import graphprog.Utils._
-  import graphprog.lang.AST.{ Action, Value, Stmt, Iterate, Loop, If, UnseenStmt, Expr }
-  import graphprog.lang.Memory
+  import pbd.Utils._
+  import pbd.lang.AST.{ Action, Value, Stmt, Iterate, Loop, If, UnseenStmt, Expr }
+  import pbd.lang.Memory
 
   private val canvas = new Canvas(this, helperFunctions, objectTypes, objectComparators, fieldLayouts, objectLayouts)
-  private val controls = new graphprog.gui.controls.Controls(this, helperFunctions.values)
+  private val controls = new pbd.gui.controls.Controls(this, helperFunctions.values)
   private val statusBar = new JLabel(" ")
   private val code = new Code(this)
 

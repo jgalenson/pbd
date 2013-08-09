@@ -1,17 +1,17 @@
-package graphprog.synthesis
+package pbd.synthesis
 
-import graphprog.lang.AST._
-import graphprog.Controller
+import pbd.lang.AST._
+import pbd.Controller
 import scala.collection.immutable.{ Map => IMap }
 
 // The postcondition takes (initial arguments, memory at end of program, return value).  Comparing initial and final values may cause problems as they have the same ids.
 class Synthesis(private val controller: Controller, name: String, typ: Type, private val inputTypes: List[(String, Type)], private val functions: IMap[String, Program], private val objectTypes: IMap[String, List[(String, Type)]], private val printHelpers: PartialFunction[String, Value => String], private val generator: Option[Double => List[(String, Value)]], private val precondition: Option[IMap[String, Value] => Boolean], private val postcondition: Option[(IMap[String, Value], IMap[String, Value], Value) => Boolean], private val objectComparators: Map[String, (Value, Value) => Int]) extends Serializable {
 
-  import graphprog.lang.{ Executor, Memory, Printer, Typer, IteratorExecutor }
-  import graphprog.lang.ASTUtils._
-  import graphprog.lang.Executor.simpleHoleHandler
-  import graphprog.Controller._
-  import graphprog.Utils._
+  import pbd.lang.{ Executor, Memory, Printer, Typer, IteratorExecutor }
+  import pbd.lang.ASTUtils._
+  import pbd.lang.Executor.simpleHoleHandler
+  import pbd.Controller._
+  import pbd.Utils._
   import scala.collection.mutable.{ Map, Set => MSet, ListBuffer }
   import scala.annotation.tailrec
   import scala.collection.{ Map => TMap }
@@ -20,7 +20,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 
   /* Constructors */
 
-  def this(controller: Controller, trace: Trace, printHelpers: PartialFunction[String, Value => String] = Map.empty, generator: Option[Double => List[(String, Value)]] = None, precondition: Option[IMap[String, Value] => Boolean] = None, postcondition: Option[(IMap[String, Value], IMap[String, Value], Value) => Boolean] = None, objectComparators: Map[String, (Value, Value) => Int] = Map.empty) = this(controller, trace.name, trace.typ, graphprog.lang.Typer.typeOfInputs(trace.inputs), trace.functions, trace.objectTypes, printHelpers, generator, precondition, postcondition, objectComparators)
+  def this(controller: Controller, trace: Trace, printHelpers: PartialFunction[String, Value => String] = Map.empty, generator: Option[Double => List[(String, Value)]] = None, precondition: Option[IMap[String, Value] => Boolean] = None, postcondition: Option[(IMap[String, Value], IMap[String, Value], Value) => Boolean] = None, objectComparators: Map[String, (Value, Value) => Int] = Map.empty) = this(controller, trace.name, trace.typ, pbd.lang.Typer.typeOfInputs(trace.inputs), trace.functions, trace.objectTypes, printHelpers, generator, precondition, postcondition, objectComparators)
 
   /* IVars */
 
@@ -445,7 +445,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
       // Parse a string, retrying if the user gives us an illegal string.
       /*def parse(inputFn: => String, failFn: => List[Action], indent: String): List[Action] = {
 	try {
-	  graphprog.lang.Compiler.parse(inputFn)
+	  pbd.lang.Compiler.parse(inputFn)
 	} catch {
 	  case _ =>
 	    println(indent + "The action(s) you entered do not seem to be legal.  Please try again.")
@@ -803,7 +803,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
       doFixStep(finalMem, None, newStmts, newBlocks, None)
     (actions, getNewStmts(origStmts, newStmts, newBlocks), finalMem)
   }
-  protected[graphprog] def executeLoopWithHelpFromUser(memory: Memory, origStmts: List[Stmt], pruneAfterUnseen: Boolean): LoopIntermediateInfo = {
+  protected[pbd] def executeLoopWithHelpFromUser(memory: Memory, origStmts: List[Stmt], pruneAfterUnseen: Boolean): LoopIntermediateInfo = {
     try {
       StmtInfo(executeWithHelpFromUser(memory, origStmts, pruneAfterUnseen, false, None))  // FIXME: This false should be true so I walk through the loop and let users do fixes (e.g., add conditionals) immediately.  Unfortunately, findLegalJoinPoints will crash, as it gets as code only the loop's code but uses the initial inputs to the whole trace.  Testcase: Selection sort.  In addition, fixing this might well allow us to do partial pruning after the first iteration of a loop and hence reduce the number of disambiguation queries we ask in loops.
     } catch {
@@ -1028,7 +1028,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
   private def guessHole(h: PossibilitiesHole): Stmt = h.possibilities.reduceLeft{ (x, y) => if (shortPrinter.stringOfStmt(x).size <= shortPrinter.stringOfStmt(y).size) x else y }
 
   // isPartialTrace: Whether or not this sequence of actions can end in the middle of a trace (e.g. with only the first iteration of a loop that in truth has more than one iteration.).
-  protected[graphprog] def genProgramAndFillHoles(memory: Memory, actions: List[Action], isPartialTrace: Boolean, loops: TMap[Iterate, Loop]): List[Stmt] = {
+  protected[pbd] def genProgramAndFillHoles(memory: Memory, actions: List[Action], isPartialTrace: Boolean, loops: TMap[Iterate, Loop]): List[Stmt] = {
     //println(shortPrinter.stringOfStmts(actions))
     val stmts = genProgramFromCompleteTraces(actions, memory, loops)
     //println(shortPrinter.stringOfStmts(stmts))
@@ -1036,17 +1036,17 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     //println(shortPrinter.stringOfStmts(filledStmts))
     filledStmts
   }
-  protected[graphprog] def genProgramAndFillHoles(memory: Memory, expr: Expr): Expr = codeGenerator.fillExprHole(ExprEvidenceHole(List((expr, memory))))
+  protected[pbd] def genProgramAndFillHoles(memory: Memory, expr: Expr): Expr = codeGenerator.fillExprHole(ExprEvidenceHole(List((expr, memory))))
 
   /* Main synthesis methods. */
 
-  protected[graphprog] def synthesize(initialTrace: Trace): Program = {
+  protected[pbd] def synthesize(initialTrace: Trace): Program = {
     println(shortPrinter.stringOfStmts(initialTrace.actions))
     allInputs :+= initialTrace.inputs
     val stmts = genProgramAndFillHoles(new Memory(initialTrace.inputs), initialTrace.actions, false, IMap.empty)
     synthesizeCode(stmts)
   }
-  protected[graphprog] def synthesizeCode(stmts: List[Stmt]): Program = {
+  protected[pbd] def synthesizeCode(stmts: List[Stmt]): Program = {
     @tailrec def synthesizeRec(code: List[Stmt]): (List[Stmt], Boolean) = {
       val prunedCode = prunePossibilities(code)
       val (furtherPrunedCode, inputs) = getNextInput(prunedCode, None)
@@ -1353,7 +1353,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
   }
 
   // Fix the condition.  We do this by re-reunning each input we've already seen on the new program and remembering the memory each time we see the condition.
-  protected[graphprog] def getCondition(code: List[Stmt], oldCondition: Expr, firstPossibleJoinStmt: Option[Stmt], branch: Boolean): Expr = oldCondition match {
+  protected[pbd] def getCondition(code: List[Stmt], oldCondition: Expr, firstPossibleJoinStmt: Option[Stmt], branch: Boolean): Expr = oldCondition match {
     case curHole @ PossibilitiesHole(possibilities) =>
       val unseen = UnseenExpr()
       val codeWithUnseen = addBlock(code, (firstPossibleJoinStmt, None), s => unseen)
@@ -1381,7 +1381,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     case _ => oldCondition
   }
 
-  protected[graphprog] def resetPruning(code: List[Stmt]): List[Stmt] = {
+  protected[pbd] def resetPruning(code: List[Stmt]): List[Stmt] = {
     // Fix pruning.  For anything that was a hole at the beginning, replace it with that original hole and then re-run all entered user actions to remove possibilities.  This has the effect of undoing pruning and then removing anything we would have removed through user interaction.
     val holeMap = origHoles.map{ case (curStmt, origHole) => curStmt -> possibilitiesToStmt(origHole, enteredActions.getOrElse(origHole, ListBuffer.empty[(List[Action], Memory)]).foldLeft(origHole.possibilities){ case (acc, (actions, mem)) => acc filter { p => actions exists { a => yieldEquivalentResults(mem, p, a, defaultExecutor) } } }) }.toMap
     holeMap foreach { case (curStmt, newStmt) => { val prevHole = origHoles.remove(curStmt).get; if (newStmt match { case PossibilitiesHole(p) => p.size != prevHole.possibilities.size case _ => true }) origHoles += (newStmt -> prevHole) } }
@@ -1389,7 +1389,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
   }
 
   // firstPossibleJoinStmt is the "smallest" thing, e.g. it is the condition not the if.  I have the real if in the caller (see ASTUtils.getOwningStmt), but the iteratorExecutor needs the smaller one anyway.  I could combine these for some efficiency, but who cares.
-  protected[graphprog] def findLegalJoinPoints(code: List[Stmt], firstPossibleJoinStmt: Option[Stmt], memAtFirstPossibleJoinStmt: Memory, memAtJoin: Memory, actionsAfterJoin: List[Action]): (Option[Stmt], List[Stmt]) = {
+  protected[pbd] def findLegalJoinPoints(code: List[Stmt], firstPossibleJoinStmt: Option[Stmt], memAtFirstPossibleJoinStmt: Memory, memAtJoin: Memory, actionsAfterJoin: List[Action]): (Option[Stmt], List[Stmt]) = {
     val parents = getParents(code)
 
     // Move the IteratorExecutor to the first potential join statement.
@@ -1450,12 +1450,12 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     iteratorExecutor
   }
 
-  protected[graphprog] def addBreakpoint(breakpoint: Breakpoint) = {
+  protected[pbd] def addBreakpoint(breakpoint: Breakpoint) = {
     breakpointsToAdd :+= breakpoint
     breakpointsToRemove = breakpointsToRemove filterNot { _ eq breakpoint.line }  // Make sure the add takes precedence over any previous removes.
   }
 
-  protected[graphprog] def removeBreakpoint(line: Stmt) = {
+  protected[pbd] def removeBreakpoint(line: Stmt) = {
     breakpointsToRemove :+= line
     breakpointsToAdd = breakpointsToAdd filterNot { _.line eq line }  // Make sure the remove takes precedence over any previous adds.
   }
@@ -1470,7 +1470,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 object Synthesis {
 
   def makeSynthesizer(name: String, typ: Type, inputTypes: List[(String, Type)], functions: IMap[String, Program], objectTypes: IMap[String, List[(String, Type)]], printHelpers: PartialFunction[String, Value => String] = Map.empty, generator: Option[Double => List[(String, Value)]] = None, precondition: Option[IMap[String, Value] => Boolean] = None, postcondition: Option[(IMap[String, Value], IMap[String, Value], Value) => Boolean] = None, objectComparators: Map[String, (Value, Value) => Int] = Map.empty)(controller: Controller): Synthesis = new Synthesis(controller, name, typ, inputTypes, functions, objectTypes, printHelpers, generator, precondition, postcondition, objectComparators)
-  def makeSynthesizerFromTrace(trace: Trace, printHelpers: PartialFunction[String, Value => String] = Map.empty, generator: Option[Double => List[(String, Value)]] = None, precondition: Option[IMap[String, Value] => Boolean] = None, postcondition: Option[(IMap[String, Value], IMap[String, Value], Value) => Boolean] = None, objectComparators: Map[String, (Value, Value) => Int] = Map.empty)(controller: Controller): Synthesis = makeSynthesizer(trace.name, trace.typ, graphprog.lang.Typer.typeOfInputs(trace.inputs), trace.functions, trace.objectTypes, printHelpers, generator, precondition, postcondition, objectComparators)(controller)
+  def makeSynthesizerFromTrace(trace: Trace, printHelpers: PartialFunction[String, Value => String] = Map.empty, generator: Option[Double => List[(String, Value)]] = None, precondition: Option[IMap[String, Value] => Boolean] = None, postcondition: Option[(IMap[String, Value], IMap[String, Value], Value) => Boolean] = None, objectComparators: Map[String, (Value, Value) => Int] = Map.empty)(controller: Controller): Synthesis = makeSynthesizer(trace.name, trace.typ, pbd.lang.Typer.typeOfInputs(trace.inputs), trace.functions, trace.objectTypes, printHelpers, generator, precondition, postcondition, objectComparators)(controller)
 
   /* Constants */
 

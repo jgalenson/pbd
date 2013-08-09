@@ -1,8 +1,8 @@
-package graphprog.lang
+package pbd.lang
 
 import AST._
 import ASTUtils._
-import graphprog.Utils._
+import pbd.Utils._
 import scala.annotation.tailrec
 
 class Executor(private val functions: Map[String, Program], private val printer: Printer, private val holeHandler: (Memory, Hole) => Stmt = Executor.errorOnHole, private val shouldPrint: Boolean = false) extends Serializable {
@@ -277,13 +277,13 @@ class Executor(private val functions: Map[String, Program], private val printer:
   }
   private def evalBoolean(memory: Memory, e: Expr): Boolean = eval(memory, e).asInstanceOf[BooleanConstant].b
   private def evalInt(memory: Memory, e: Expr): Int = eval(memory, e).asInstanceOf[IntConstant].n
-  protected[graphprog] def execute(memory: Memory, s: Stmt): (Value, Memory) = {
+  protected[pbd] def execute(memory: Memory, s: Stmt): (Value, Memory) = {
     val clonedMemory = memory.clone
     (exec(clonedMemory, s), clonedMemory)
   }
-  protected[graphprog] def evaluate(memory: Memory, s: Stmt): Value = execute(memory, s)._1
-  protected[graphprog] def evaluateBoolean(memory: Memory, s: Stmt): Boolean = evaluate(memory, s).asInstanceOf[BooleanConstant].b
-  protected[graphprog] def evaluateInt(memory: Memory, e: Expr): Int = evaluate(memory, e).asInstanceOf[IntConstant].n
+  protected[pbd] def evaluate(memory: Memory, s: Stmt): Value = execute(memory, s)._1
+  protected[pbd] def evaluateBoolean(memory: Memory, s: Stmt): Boolean = evaluate(memory, s).asInstanceOf[BooleanConstant].b
+  protected[pbd] def evaluateInt(memory: Memory, e: Expr): Int = evaluate(memory, e).asInstanceOf[IntConstant].n
 
   /* Execute a list of statements and return the result and final memory. */
   protected def execStmts(memory: Memory, stmts: List[Stmt]): Value = {
@@ -291,13 +291,13 @@ class Executor(private val functions: Map[String, Program], private val printer:
       throw new InterruptedException
     stmts.foldLeft(UnitConstant: Value) { (prev, s) => if (isErrorOrFailure(prev) || prev == BreakHit) prev else exec(memory, s) }
   }
-  protected[graphprog] def executeStmts(memory: Memory, stmts: List[Stmt]): (Value, Memory) = {
+  protected[pbd] def executeStmts(memory: Memory, stmts: List[Stmt]): (Value, Memory) = {
     val clonedMemory = memory.clone
     (execStmts(clonedMemory, stmts), clonedMemory)
   }
-  protected[graphprog] def evaluateStmts(memory: Memory, stmts: List[Stmt]): Value = executeStmts(memory, stmts)._1
+  protected[pbd] def evaluateStmts(memory: Memory, stmts: List[Stmt]): Value = executeStmts(memory, stmts)._1
 
-  protected[graphprog] def executeProgram(program: Program, inputs: List[(String, Value)], cloneMemory: Boolean): (Value, Memory) = {
+  protected[pbd] def executeProgram(program: Program, inputs: List[(String, Value)], cloneMemory: Boolean): (Value, Memory) = {
     val inputMem = new Memory(inputs)
     val mem = if (cloneMemory) inputMem.clone else inputMem
     (if (program.functions.eq(functions) || (program.functions.isEmpty && functions.size == 1 && functions.head._2.eq(program)))
@@ -359,7 +359,7 @@ object Executor {
 
   protected[lang] def errorOnHole(memory: Memory, hole: Hole): Nothing = throw new ExecuteError(hole.asInstanceOf[Stmt], "I'm trying to execute a hole when there shouldn't be a hole.")
 
-  protected[graphprog] def simpleHoleHandler(executor: Executor)(memory: Memory, hole: Hole): Stmt = hole match {
+  protected[pbd] def simpleHoleHandler(executor: Executor)(memory: Memory, hole: Hole): Stmt = hole match {
     case PossibilitiesHole(possibilities) => 
       val results = possibilities flatMap { s => try { val (v, m) = executor.execute(memory, s); if (v == ErrorConstant) Nil else List((s, v, m)) } catch { case _: Throwable => Nil } }  // TODO: I shouldn't need the catch here: all errors that can arise should return ErrorConstants in execute.  Same in findFirstNewRandomInput, in findBest*, in fillHoles.genExpr, and in simpleInputPruning.
       if (results.size == 0)
@@ -372,6 +372,6 @@ object Executor {
     case _: EvidenceHole => throw new ExecuteError(hole.asInstanceOf[Stmt], "Cannot handle evidence hole")
   }
 
-  protected[graphprog] class InterruptedException extends FastException
+  protected[pbd] class InterruptedException extends FastException
 
 }

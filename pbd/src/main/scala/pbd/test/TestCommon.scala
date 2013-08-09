@@ -1,11 +1,11 @@
-package graphprog.test
+package pbd.test
 
 protected[test] object TestCommon {
 
-  import graphprog.lang.AST._
-  import graphprog.lang.Printer
-  import graphprog.Utils._
-  import graphprog.Controller.Options
+  import pbd.lang.AST._
+  import pbd.lang.Printer
+  import pbd.Utils._
+  import pbd.Controller.Options
   import scala.annotation.tailrec
   import scala.language.implicitConversions
 

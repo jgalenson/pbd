@@ -1,13 +1,13 @@
-package graphprog.test
+package pbd.test
 
 object RBTree {
 
-  import graphprog.lang.AST._
-  import graphprog.lang.{ Executor, Memory, Printer }
-  import graphprog.Controller._
-  import graphprog.Controller
-  import graphprog.Utils._
-  import graphprog.synthesis.Synthesis._
+  import pbd.lang.AST._
+  import pbd.lang.{ Executor, Memory, Printer }
+  import pbd.Controller._
+  import pbd.Controller
+  import pbd.Utils._
+  import pbd.synthesis.Synthesis._
   import scala.collection.mutable.HashMap
   import scala.util.Random.{nextInt, nextBoolean, nextFloat, shuffle}
   import TestCommon._
@@ -142,7 +142,7 @@ object RBTree {
   }
   def test(name: String, typ: Type, inputs: List[(String, Value)], generator: Option[Double => List[(String, Value)]], precondition: Option[Map[String, Value] => Boolean], postcondition: Option[(Map[String, Value], Map[String, Value], Value) => Boolean], functions: Map[String, Program], objectTypes: Map[String, List[(String, Type)]], fieldLayouts: Map[String, List[List[String]]], options: Options) {
     try {
-      val result = synthesize(inputs, makeSynthesizer(name, typ, graphprog.lang.Typer.typeOfInputs(inputs), functions, objectTypes, printHelpers, generator, precondition, postcondition, treeComparator) _, functions, objectTypes, treeComparator, fieldLayouts, treeLayout, options)
+      val result = synthesize(inputs, makeSynthesizer(name, typ, pbd.lang.Typer.typeOfInputs(inputs), functions, objectTypes, printHelpers, generator, precondition, postcondition, treeComparator) _, functions, objectTypes, treeComparator, fieldLayouts, treeLayout, options)
       println("Result:\n" + printer.stringOfProgram(result))
     } catch {
       case e: Throwable => e.printStackTrace

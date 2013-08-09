@@ -1,15 +1,15 @@
-package graphprog.test
+package pbd.test
 
 object TestCompiler {
 
-  import graphprog.lang.AST._
-  import graphprog.lang.{ Executor, Printer, IteratorExecutor }
-  import graphprog.Controller._
-  import graphprog.Utils._
-  import graphprog.lang.Compiler._
-  import graphprog.synthesis.Synthesis._
+  import pbd.lang.AST._
+  import pbd.lang.{ Executor, Printer, IteratorExecutor }
+  import pbd.Controller._
+  import pbd.Utils._
+  import pbd.lang.Compiler._
+  import pbd.synthesis.Synthesis._
   import scala.collection.mutable.HashMap
-  import graphprog.Controller.ObjectLayout
+  import pbd.Controller.ObjectLayout
   import TestCommon._
 
   def main(args: Array[String]) {
