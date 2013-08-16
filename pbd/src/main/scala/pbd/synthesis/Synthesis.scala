@@ -4,7 +4,10 @@ import pbd.lang.AST._
 import pbd.Controller
 import scala.collection.immutable.{ Map => IMap }
 
-// The postcondition takes (initial arguments, memory at end of program, return value).  Comparing initial and final values may cause problems as they have the same ids.
+/**
+ * The class responsible for the majority of the synthesis.
+ * The postcondition takes (initial arguments, memory at end of program, return value).  Comparing initial and final values may cause problems as they have the same ids.
+ */
 class Synthesis(private val controller: Controller, name: String, typ: Type, private val inputTypes: List[(String, Type)], private val functions: IMap[String, Program], private val objectTypes: IMap[String, List[(String, Type)]], private val printHelpers: PartialFunction[String, Value => String], private val generator: Option[Double => List[(String, Value)]], private val precondition: Option[IMap[String, Value] => Boolean], private val postcondition: Option[(IMap[String, Value], IMap[String, Value], Value) => Boolean], private val objectComparators: Map[String, (Value, Value) => Int]) extends Serializable {
 
   import pbd.lang.{ Executor, Memory, Printer, Typer, IteratorExecutor }
@@ -40,17 +43,25 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
   private var breakpointsToRemove = List.empty[Stmt]
 
   private val codeGenerator = new CodeGenerator(functions, shortPrinter, defaultExecutor, typer, enteredActions)
+  private val simpleHoleHandlerExecutor = new Executor(functions, longPrinter, simpleHoleHandler(defaultExecutor))
 
   private var numUnseensFilled = 0
   private var numDisambiguations = 0
   private var numCodeFixes = 0
 
-  /* Checking for equality and other helpers */
+  /* Helpers */
 
+  /**
+   * Executes the given progam.
+   */
   private def executeProgram(executor: Executor, input: List[(String, Value)], stmts: List[Stmt]): (Value, Memory) = executor.executeStmts(new Memory(input), stmts)
 
   /* Algorithms */
 
+  /**
+   * Converts a trace (i.e., Actions) into a program (i.e., Stmts).
+   * This might involve merging multiple actions into a single statement.
+   */
   private def genProgramFromCompleteTraces(actions: List[Action], memory: Memory, loops: TMap[Iterate, Loop]): List[Stmt] = {
     def genProgramFromCompleteTracesRec(ast: List[Stmt], traces: List[(List[Action], Memory)]): List[Stmt] = {
       //println(iterableToString(traces, " and ", (t: (List[Action], Memory)) => "[" + longPrinter.stringOfStmts(t._1) + " in " + longPrinter.stringOfMemory(t._2) + "]") + ".")
@@ -110,6 +121,9 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 
   /* Input generation */
 
+  /**
+   * Generates a random input in the given bounds.
+   */
   private def genRandomInput(bounds: (Int, Int, Int, Int)): List[(String, Value)] = {
     import scala.util.Random.{nextInt, nextBoolean, nextFloat}
     val (_, l, u, arraySize) = bounds
@@ -126,6 +140,9 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     genRandomValues(inputTypes)
   }
 
+  /**
+   * Returns the first input (from the generator if there is one; random otherwise) that satisfies the given success condition, if any.
+   */
   private def findFirstRandomInput(inputSize: Double, successCond: Option[List[(String, Value)] => Boolean]): Option[List[(String, Value)]] = generator match {
     case Some(generator) =>
       // Try 0.1, 0.2, ..., 0.9 in increasing order of their distance to inputSize without wrapping.
@@ -163,8 +180,6 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	  None
       }
   }
-
-  val simpleHoleHandlerExecutor = new Executor(functions, longPrinter, simpleHoleHandler(defaultExecutor))
 
   /**
    * Finds the first random input that helps us.
@@ -250,8 +265,8 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
      * - For two objects, we recursively compare their fields.  But if those fields are themselves objects, we do not recurse again but simply consider any two non-null fields as the same size.
      * - For multiple things (the list of initial inputs or fields), we recursively compare each pair.  If one has more smaller
      * objects and arrays, we return it.  Otherwise, we return the on with more smaller integers.
+     * TODO: Potentially I should modify this to not prefer things that can be constants (e.g. 0, 1, 2) since they can lead to more questions.
      */
-    // TODO: Potentially I should modify this to not prefer things that can be constants (e.g. 0, 1, 2) since they can lead to more questions.
     def compareInputs(doSimpleObjectCheck: Boolean)(x: Iterable[Value], y: Iterable[Value]): Int = {
       def normalize(n: Int): Int = if (n < 0) -1 else if (n > 0) 1 else 0
       def sortFields(f: Map[String, Value]): Iterable[Value] = f.toList.sortBy{ _._1 }.map{ _._2 }
@@ -384,6 +399,9 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     findBestRandomInputHelper(preferredInput.toList ++ bestInput.toList, runFn, compareFn( (_, _) => 0 ), useFn)  // The helper prefers elements earlier in the list.
   }
 
+  /**
+   * Gets the next input that will help us.
+   */
   @tailrec private def getNextInput(code: List[Stmt], preferredInput: Option[List[(String, Value)]]): (List[Stmt], Option[List[(String, Value)]]) = {
     if (isComplete(code))
       return (code, None)
@@ -394,7 +412,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     if (shouldContinueWithInput)
       (prunedStmts, inputs)
     else {
-      if (prunedStmts == code && preferredInput.isEmpty)
+      if (prunedStmts == code && preferredInput.isEmpty)  // If we can't find an input, don't recurse forever.
 	throw new SolverError("Cannot generate an input.")
       getNextInput(prunedStmts, None)
     }
@@ -405,9 +423,13 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
   private case class FixedCode(curStmt: Option[Stmt], newCode: CodeInfo) extends RuntimeException with FastException
   private case class SkipTrace(info: EndTrace, newStmts: IMap[Stmt, Stmt], newBlocks: IMap[Stmt, List[Stmt]]) extends RuntimeException with FastException
   private case class FoundMoreExpressions(curStmt: Stmt) extends RuntimeException with FastException
-  // TODO: Remove asInstanceOfs
-  // We might have isFixing == true and failingStmt == None, for instance when there is no correct path on an input but we don't crash on a single statement (from long pruning).
+  /**
+   * Executes the given code with help from the user.
+   * TODO: Remove asInstanceOfs
+   * We might have isFixing == true and failingStmt == None, for instance when there is no correct path on an input but we don't crash on a single statement (from long pruning).
+   */
   private def executeWithHelpFromUser(memory: Memory, origStmts: List[Stmt], pruneAfterUnseen: Boolean, amFixing: Boolean, failingStmt: Option[Stmt], otherBranch: Option[(Stmt, UnknownJoinIf)] = None): (List[Action], List[Stmt], Memory) = {
+    // Updates the display the reflect the given memory and code.
     def updateDisplay(memory: Memory, curStmt: Option[Stmt], newStmts: IMap[Stmt, Stmt], newBlocks: IMap[Stmt, List[Stmt]], layoutObjs: Boolean = true) = {
       val code = getNewStmts(origStmts, newStmts, newBlocks)
       val displayCode = otherBranch match {  // Show the unknown join to the user.
@@ -421,7 +443,8 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
       controller.updateDisplay(memory, displayCode, curStmt, layoutObjs, actualBreakpoints, failingStmt)
     }
     var continue = false  // Whether the user has selected to continue.
-    var foundMoreExpressions = false
+    var foundMoreExpressions = false  // Whether we found more expressions.
+    // Shows the user the given memory diff and lets him walk through it or fix the program, e.g., by adding a conditional.
     def doFixStep(memory: Memory, curStmt: Option[Stmt], newStmts: IMap[Stmt, Stmt], newBlocks: IMap[Stmt, List[Stmt]], diffInfo: Option[(Memory, Stmt, Value)]): Boolean = {
       assert(amFixing || diffInfo.isEmpty)
       (diffInfo, continue) match {
@@ -440,7 +463,8 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
       }
       false
     }
-    var pruneBeforeNextDisambiguation = false
+    var pruneBeforeNextDisambiguation = false  // Whether we should prune before the next disambiguation question (because we've recently seen an unseen and hence might be able to avoid asking the question).
+    // Helper on which we can recurse to execute substatements.
     def executeWithHelpFromUserHelper(memory: Memory, stmts: List[Stmt], newStmts: IMap[Stmt, Stmt], newBlocks: IMap[Stmt, List[Stmt]], indent: String, printFn: String => Unit = print): ((Memory, List[Action], IMap[Stmt, Stmt], IMap[Stmt, List[Stmt]]), Boolean) = {
       // Parse a string, retrying if the user gives us an illegal string.
       /*def parse(inputFn: => String, failFn: => List[Action], indent: String): List[Action] = {
@@ -475,7 +499,9 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
       def noprint(s: String) = ()
       def myprint(s: String) = printFn(indent + s)
       def myprintln(s: String) = printFn(indent + s + "\n")
+      // Handle each statement separately.
       stmts.foldLeft(((memory, List[Action](), newStmts, newBlocks), false)){ case (((memory, trace, newStmts, newBlocks), breakHit), curStmt) => {
+	// Handle a condition.
 	def conditionHelper(memory: Memory, condition: Stmt, newStmts: IMap[Stmt, Stmt], newBlocks: IMap[Stmt, List[Stmt]]): (Action, IMap[Stmt, Stmt], IMap[Stmt, List[Stmt]], Boolean, Memory) = {
 	  val ((conditionMemory, conditionActions, newerStmts, newerBlocks), _) = executeWithHelpFromUserHelper(memory, List(condition), newStmts, newBlocks, indent, noprint)
 	  val conditionExpr = conditionActions.head.asInstanceOf[Expr]
@@ -485,11 +511,12 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	}
 	if (breakHit) 
 	  ((memory, trace, newStmts, newBlocks), breakHit)
-	else if (newBlocks.contains(curStmt))
+	else if (newBlocks.contains(curStmt))  // Ensure we use the newest version of the code.
 	  executeWithHelpFromUserHelper(memory, newBlocks(curStmt), newStmts, newBlocks, indent, printFn)
 	else {
-	  val actualCurStmt = newStmts.getOrElse(curStmt, curStmt)
+	  val actualCurStmt = newStmts.getOrElse(curStmt, curStmt)  // Get the newest version of the statement.
 	  //println("Executing " + shortPrinter.stringOfStmt(actualCurStmt))
+	  // Helpers.
 	  def updateDisplayShort(layoutObjs: Boolean = true) = updateDisplay(memory, Some(actualCurStmt), newStmts, newBlocks, layoutObjs)
 	  def doFixStepShort(diffInfo: Option[(Memory, Stmt, Value)]) {
 	    if (doFixStep(memory, Some(actualCurStmt), newStmts, newBlocks, diffInfo)) {
@@ -554,9 +581,10 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	      }
 	    case _ =>
 	  }
-	  // Handle the actual statement
+	  // Handles the actual statement
 	  def handleStmt(actualCurStmt: Stmt): ((Memory, List[Action], IMap[Stmt, Stmt], IMap[Stmt, List[Stmt]]), Boolean) = (actualCurStmt: @unchecked) match {
 	    case curHole @ PossibilitiesHole(possibilities) =>
+	      // Updates information to log the actions and the hole handled.
 	      def updateHoleMaps(newStmt: Stmt, actions: List[Action], userEntered: Boolean) = origHoles.getOrElse(curStmt, curStmt) match {
 		case origHole: PossibilitiesHole => 
 		  if (userEntered)
@@ -594,7 +622,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 		val newStmt = possibilitiesToStmt(curHole, newPossibilities)
 		updateHoleMaps(newStmt, newPossibilities map { _.asInstanceOf[Action] }, false)
 		((firstPossMemory, trace :+ action, newStmts + (curStmt -> newStmt), newBlocks), false)
-	      } else {
+	      } else {  // If some possibilities are different, ask the user to disambiguate.
 		if (pruneBeforeNextDisambiguation)
 		  throw new PruneCode(getNewStmts(origStmts, newStmts, newBlocks))
 		updateDisplayShort(!amFixing)
@@ -799,7 +827,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
       }}
     }
     val (finalMem, actions, newStmts, newBlocks) = executeWithHelpFromUserHelper(memory, origStmts, IMap.empty, IMap.empty, "")._1
-    if (amFixing && !foundMoreExpressions)
+    if (amFixing && !foundMoreExpressions)  // If we're fixing but haven't made any changes, add a conditional at the end.
       doFixStep(finalMem, None, newStmts, newBlocks, None)
     (actions, getNewStmts(origStmts, newStmts, newBlocks), finalMem)
   }
@@ -810,6 +838,10 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
       case SkipTrace(e: EndTrace, _, _) => e
     }
   }
+
+  /**
+   * Gets a trace with help from the user by walking through it.
+   */
   private def getTraceWithHelpFromUser(code: List[Stmt], inputs: List[(String, Value)], pruneAfterUnseen: Boolean, amFixing: Boolean, failingStmt: Option[Stmt], otherBranch: Option[(Stmt, UnknownJoinIf)] = None): List[Stmt] = {
     controller.getOptions().dumpBackupData match {
       case Some(filename) => dumpBackupData(filename, controller, code)
@@ -876,7 +908,10 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     }
   }
 
-  // Be careful to not create new things unless we need them, since that breaks reference equality.
+  /**
+   * Updates the given code using the given partial functions.
+   * Be careful to not create new things unless we need them, since that breaks reference equality.
+   */
   def getNewStmts(oldStmts: List[Stmt], newStmts: PartialFunction[Stmt, Stmt], newBlocks: PartialFunction[Stmt, List[Stmt]]): List[Stmt] = {
     def getNewExpr(e: Expr): Expr = singleton(getNewStmt(e)).asInstanceOf[Expr]
     def getNewStmts(s: List[Stmt]): List[Stmt] = {
@@ -948,7 +983,6 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     "This program has " + numUnseen + " unseen " + pluralize("statement", "statements", numUnseen) + " and " + possibilities.size + " possibility " + pluralize("hole", "holes", possibilities.size) + " with " + possibilities.sum + " total possibilities representing " + variants + " variant " + pluralize("program", "programs", variants) + "."
   }
 
-  // TODO: Really, for this use I want "all holes whose first occurence always precedes those of unseen stmts on the given input".  That would let me prune extra holes (e.g. on rbInsert when we don't enter the loop, I could prune the final tree.root.color assignment, which I currently can't do here but can do with an automatic interactive trace).
   /**
    * Returns a tuple whose first element contains holes whose first occurrence always precedes those of all unseen stmts,
    * whose second element contains unseen holes that are the first unseen hole on some path,
@@ -956,6 +990,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
    * Note that this is probably not precise.  But if any elements that should be in the first part are accidentally
    * put in the third, then we just cannot prune them.  And if any elements that should be in the third part are
    * put in the first, then we should remove them later in the pruning process.
+   * TODO: Really, for this use I want "all holes whose first occurence always precedes those of unseen stmts on the given input".  That would let me prune extra holes (e.g. on rbInsert when we don't enter the loop, I could prune the final tree.root.color assignment, which I currently can't do here but can do with an automatic interactive trace).
    */
   private def classifyHoles(l: List[Stmt]): (List[PossibilitiesHole], List[Unseen], List[Hole]) = {
     /**
@@ -1002,7 +1037,10 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     (before._1 ++ before._2, first, after)
   }
 
-  // TODO/FIXME: I should really also show these input/output pairs to the user and ask if they're correct.  For example, if we don't have a postcondition, this might be very necessary.
+  /**
+   * Checks whether the given program is complete by heuristically executing it on a bunch of random inputs.
+   * TODO/FIXME: I should really also show these input/output pairs to the user and ask if they're correct.  For example, if we don't have a postcondition, this might be very necessary.
+   */
   private def checkProgram(code: List[Stmt]): Option[(List[(String, Value)], Boolean)] = {
     /*@tailrec */def doCheck(curRound: Int): Option[(List[(String, Value)], Boolean)] = {
       if (curRound == NUM_FINAL_CHECKS)
@@ -1024,10 +1062,16 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     doCheck(0)
   }
 
-  // TODO: Improve implementation by looking at the exprs themselves.  This is just a hack.
+  /**
+   * Chooses the shortest version of a hole to display instead of the hole to make the program look prettier.
+   * TODO: Improve implementation by looking at the exprs themselves.
+   */
   private def guessHole(h: PossibilitiesHole): Stmt = h.possibilities.reduceLeft{ (x, y) => if (shortPrinter.stringOfStmt(x).size <= shortPrinter.stringOfStmt(y).size) x else y }
 
-  // isPartialTrace: Whether or not this sequence of actions can end in the middle of a trace (e.g. with only the first iteration of a loop that in truth has more than one iteration.).
+  /**
+   * Generates a program to satisfy the given evidence.
+   * isPartialTrace: Whether or not this sequence of actions can end in the middle of a trace (e.g. with only the first iteration of a loop that in truth has more than one iteration.).
+   */
   protected[pbd] def genProgramAndFillHoles(memory: Memory, actions: List[Action], isPartialTrace: Boolean, loops: TMap[Iterate, Loop]): List[Stmt] = {
     //println(shortPrinter.stringOfStmts(actions))
     val stmts = genProgramFromCompleteTraces(actions, memory, loops)
@@ -1040,6 +1084,9 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 
   /* Main synthesis methods. */
 
+  /**
+   * Synthesizes a program.
+   */
   protected[pbd] def synthesize(initialTrace: Trace): Program = {
     println(shortPrinter.stringOfStmts(initialTrace.actions))
     allInputs :+= initialTrace.inputs
@@ -1090,18 +1137,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
   }
 
   /**
-   * Prunes the given program.  The basic algorithm is to generate an input,
-   * explore all paths with that input, and remove possibilities that never
-   * have successful runs.  The complications are that
-   * - we must treat unseen statements as successful and cannot prune holes
-   * that follow them
-   * - we can only prune holes that we see on all successful runs, as
-   * otherwise it's possible that the only desired run is one that does
-   * not touch this hole, and we do not want to prune based on undesired
-   * runs.
-   * Note that this function can be very slow, as in the worse case it must
-   * explore every path through the program, but there are many optimizations
-   * that speed it up in practice.
+   * Fully prune by running both simple and full pruning.
    */
   private def prunePossibilities(code: List[Stmt]): List[Stmt] = {
     @tailrec def pruneLoop(code: List[Stmt], curRound: Int): List[Stmt] = {
@@ -1118,9 +1154,27 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     doInputPruning(pruneLoop(doInputPruning(code), 0))
   }
 
+  /**
+   * Runs the simple input pruning a number of times in a row.
+   */
   private def doInputPruning(code: List[Stmt]) = (0 until NUM_PRUNING_ROUNDS).foldLeft(code){ (code, i) => val input = findFirstNewRandomInput(code, i / NUM_PRUNING_ROUNDS.toDouble); if (input.isDefined) simpleInputPruning(code, input.get)._1 else code }
 
-    // Returns None if it cannot prune the program and there is no point in trying again (e.g. it cannot generate a good input).
+  /**
+   * Prunes the given program.  The basic algorithm is to generate an input,
+   * explore all paths with that input, and remove possibilities that never
+   * have successful runs.  The complications are that
+   * - we must treat unseen statements as successful and cannot prune holes
+   * that follow them
+   * - we can only prune holes that we see on all successful runs, as
+   * otherwise it's possible that the only desired run is one that does
+   * not touch this hole, and we do not want to prune based on undesired
+   * runs.
+   * Note that this function can be very slow, as in the worse case it must
+   * explore every path through the program, but there are many optimizations
+   * that speed it up in practice.
+   * Returns None if it cannot prune the program and there is no point in
+   * trying again (e.g. it cannot generate a good input).
+   */
     private def prune(code: List[Stmt], progress: Double, inputOpt: Option[List[(String, Value)]]): Option[List[Stmt]] = {
       import scala.collection.mutable.HashSet
       case object AbortOnUnknown extends Value with IsErrorOrFailure
@@ -1197,6 +1251,7 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	}
 	def programSucceeded(result: Value, resMap: IMap[String, Value]): Boolean = !isErrorOrFailure(result) && (postcondition match { case Some(p) => p(input.toMap, resMap, result) case _ => true })
 	//val startTime = System.currentTimeMillis()
+	// Recursive function to explore the entire possibility space.
 	// Returns (has at least one path that was successful or hit an unseen stmt, can prune)
 	@tailrec def explorePossibilitySpace(): (Boolean, Boolean) = {
 	  //println("Exploring: " + path)
@@ -1340,6 +1395,9 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 
   /* Inferring conditionals */
 
+  /**
+   * Walks through the code with the user so they can fix it.
+   */
   private def fixCode(code: List[Stmt], reason: String, input: List[(String, Value)], failingStmt: Option[Stmt]): List[Stmt] = {
     println(Console.RED + "**" + Console.RESET + "Please fix the program because " + reason + ".")
     // TODO/FIXME: Call resetPruning here?
@@ -1352,7 +1410,9 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     prunePossibilities(fixedStmts)
   }
 
-  // Fix the condition.  We do this by re-reunning each input we've already seen on the new program and remembering the memory each time we see the condition.
+  /**
+   * Finds the condition.  We do this by re-reunning each input we've already seen on the new program and remembering the memory each time we see the condition.
+   */
   protected[pbd] def getCondition(code: List[Stmt], oldCondition: Expr, firstPossibleJoinStmt: Option[Stmt], branch: Boolean): Expr = oldCondition match {
     case curHole @ PossibilitiesHole(possibilities) =>
       val unseen = UnseenExpr()
@@ -1381,14 +1441,20 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     case _ => oldCondition
   }
 
+  /**
+   * Fixes pruning.  For anything that was a hole at the beginning, replace it with that original hole and then re-run all entered user actions to remove possibilities.
+   * This has the effect of undoing pruning and then removing anything we would have removed through user interaction.
+   */
   protected[pbd] def resetPruning(code: List[Stmt]): List[Stmt] = {
-    // Fix pruning.  For anything that was a hole at the beginning, replace it with that original hole and then re-run all entered user actions to remove possibilities.  This has the effect of undoing pruning and then removing anything we would have removed through user interaction.
     val holeMap = origHoles.map{ case (curStmt, origHole) => curStmt -> possibilitiesToStmt(origHole, enteredActions.getOrElse(origHole, ListBuffer.empty[(List[Action], Memory)]).foldLeft(origHole.possibilities){ case (acc, (actions, mem)) => acc filter { p => actions exists { a => yieldEquivalentResults(mem, p, a, defaultExecutor) } } }) }.toMap
     holeMap foreach { case (curStmt, newStmt) => { val prevHole = origHoles.remove(curStmt).get; if (newStmt match { case PossibilitiesHole(p) => p.size != prevHole.possibilities.size case _ => true }) origHoles += (newStmt -> prevHole) } }
     getNewStmts(code, holeMap, IMap.empty)
   }
 
-  // firstPossibleJoinStmt is the "smallest" thing, e.g. it is the condition not the if.  I have the real if in the caller (see ASTUtils.getOwningStmt), but the iteratorExecutor needs the smaller one anyway.  I could combine these for some efficiency, but who cares.
+  /**
+   * Finds the legal joins that can correspond to the given location and actions.
+   * firstPossibleJoinStmt is the "smallest" thing, e.g. it is the condition not the if.  I have the real if in the caller (see ASTUtils.getOwningStmt), but the iteratorExecutor needs the smaller one anyway.  I could combine these for some efficiency, but who cares.
+   */
   protected[pbd] def findLegalJoinPoints(code: List[Stmt], firstPossibleJoinStmt: Option[Stmt], memAtFirstPossibleJoinStmt: Memory, memAtJoin: Memory, actionsAfterJoin: List[Action]): (Option[Stmt], List[Stmt]) = {
     val parents = getParents(code)
 
@@ -1434,6 +1500,10 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 
     (realFirstPossibleJoinStmt, legalJoins)
   }
+
+  /**
+   * Advances an iterator executor to the given point.
+   */
   private def advanceIteratorExecutorToPoint(code: List[Stmt], target: Option[Stmt], input: List[(String, Value)], targetMem: Option[Memory]): IteratorExecutor = {
     val iteratorExecutor = new IteratorExecutor(functions, shortPrinter, simpleHoleHandler(defaultExecutor))
     val mem = iteratorExecutor.executeStmts(new Memory(input), code)._2
@@ -1450,11 +1520,13 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
     iteratorExecutor
   }
 
+  /**
+   * Add/remove breakpoints.
+   */
   protected[pbd] def addBreakpoint(breakpoint: Breakpoint) = {
     breakpointsToAdd :+= breakpoint
     breakpointsToRemove = breakpointsToRemove filterNot { _ eq breakpoint.line }  // Make sure the add takes precedence over any previous removes.
   }
-
   protected[pbd] def removeBreakpoint(line: Stmt) = {
     breakpointsToRemove :+= line
     breakpointsToAdd = breakpointsToAdd filterNot { _.line eq line }  // Make sure the remove takes precedence over any previous adds.

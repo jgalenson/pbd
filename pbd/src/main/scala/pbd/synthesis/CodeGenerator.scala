@@ -5,6 +5,9 @@ import pbd.lang.{ Executor, Memory, Printer, Typer, CachingExecutor }
 import scala.collection.immutable.{ Map => IMap }
 import scala.collection.mutable.{ Map => MMap, ListBuffer }
 
+/**
+ * Generates code to satisfy demosntrations.
+ */
 protected[synthesis] class CodeGenerator(private val functions: IMap[String, Program], private val shortPrinter: Printer, private val defaultExecutor: Executor, private val typer: Typer, private val enteredActions: MMap[Stmt, ListBuffer[(List[Action], Memory)]]) {
 
   import pbd.Utils._
@@ -14,17 +17,21 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
   import CodeGenerator._
   import SynthesisUtils._
 
-  // TODO-cleanup: Ugly.
+  /**
+   * Generates all expressions that satisfy the given evidence.
+   */
   protected[pbd] def genAllExprs(evidence: Iterable[(Action, Memory)], maxDepth: Int, curMemory: Option[Memory], checker: Option[(Expr, Action, Memory) => Boolean] = None): Iterable[Expr] = {
     if (evidence.head._1.isInstanceOf[TLiteralExpr[_]]) {  // TODO: This should probably be in fillHoles once I have it recursing on itself for +,<,etc.
       assert(holdsOverIterable(evidence, (x: (Action, Memory), y: (Action, Memory)) => x._1 == y._1))
       return List(evidence.head._1.asInstanceOf[TLiteralExpr[Expr]].l)
     }
     val cachingExecutor = new CachingExecutor(functions, shortPrinter)
+    // Makes all possible calls that use the given actuals.
     def makeCalls(name: String, actualsPossibilities: Iterable[Iterable[Expr]]): Iterable[Call] = {
       val allArgs = actualsPossibilities.foldLeft(List[List[Expr]](Nil)){ (acc, cur) => for (a <- acc; c <- cur) yield a :+ c }
       allArgs map { Call(name, _) }
     }
+    // Generates all expressions up to teh given maximum depth.  Returns the equivalences and their candidates.
     def genExprs(): (Iterable[Expr], MMap[Expr, MSet[Expr]]) = {
       def canBeSameType(t1: Type, t2: Type): Boolean = (t1, t2) match {
 	case (ObjectType(n1), ObjectType(n2)) => n1 == n2 || n1 == "null" || n2 == "null"  // I somtimes call this with t2 == targetType, which would be null when I want something non-null, so if either is null, accept it
@@ -37,10 +44,12 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
       def pairs(l1: Iterable[Expr], l2: Iterable[Expr], memory: Memory): Iterable[(Expr, Expr)] = for (e1 <- l1; e2 <- l2; e2b = if (e1 != e2) e2 else equivalences(memory)(getResult(e2, memory, cachingExecutor.execute(memory, e2))).find{ _ != e1 }.getOrElse{ e2 }; reorder = e1 == e2 && shortPrinter.stringOfExpr(e1) > shortPrinter.stringOfExpr(e2b)) yield if (!reorder) (e1, e2b) else (e2b, e1)
       def getRepresentatives(memory: Memory): Iterable[Expr] = equivalences.getOrElse(memory, MMap.empty).values.map{ _.head }
       def addExpr(memory: Memory, expr: Expr, result: Result) = equivalences.getOrElseUpdate(memory, MHashMap.empty).getOrElseUpdate(result, ListBuffer.empty) += expr
+      // Recursively generates expressions for a single depth.
       def genExprsRec(depth: Int) {
 	if (depth > maxDepth)
 	  return
 	val vars = evidence.map{ _._2.keys.toSet }.reduce{ (a, c) => a.intersect(c) }.map{ s => Var(s) }  // Ignore variables that don't exist in all memories.
+	// Do the generation separately for each memory.
 	evidence.groupBy{ _._2 }.foreach{ case (memory, evidence) => {
 	  val targetType = typer.typeOfAction(evidence.head._1, memory)
 	  val constants = List(Null)
@@ -110,6 +119,7 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
 	removeCrashers()
 	genExprsRec(depth + 1)
       }
+      // Combines the equivalence classes from different memories into one.
       def combineEquivalences(): MMap[Expr, MSet[Expr]] = {
 	val combinedEquivs = MHashMap.empty[Expr, MSet[Expr]]
 	val allClasses = MHashSet.empty[MSet[Expr]] ++ equivalences.values.flatMap{ _.values.map{ MHashSet.empty[Expr] ++ _ } }
@@ -125,8 +135,10 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
       val candidates = demonstrations ++ finalEquivMap.values.toSet.map{ (cls: MSet[Expr]) => cls.head }  // TODO: This is a bit slow and could be optimized.
       (candidates, finalEquivMap)
     }
+    // Expands the given valid expressions using the given equivalences.
     def expandEquivalences(validExprs: Iterable[Expr], equivalences: MMap[Expr, MSet[Expr]]): Iterable[Expr] = {
       val newlyExpanded = MSet.empty[Expr]
+      // Ensures we do not expand redundant expressions, e.g., x+y and y+x.
       def isUsefulInfix(infix: BinaryOp): Boolean = infix match {
 	case Plus(l, r) => !l.isInstanceOf[Value] && ((r.isInstanceOf[Value] && r == IntConstant(1)) || shortPrinter.stringOfExpr(l) < shortPrinter.stringOfExpr(r))
 	case Times(l, r) => !l.isInstanceOf[Value] && ((r.isInstanceOf[Value] && r == IntConstant(2)) || shortPrinter.stringOfExpr(l) <= shortPrinter.stringOfExpr(r))
@@ -177,6 +189,7 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
       //println("Candidates: {" + iterableToString(candidates, ", ", (e: Expr) => shortPrinter.stringOfExpr(e)) + "}")
       candidates.flatMap(expandRec).toSet
     }
+    // Checks whether the given expression has the same form/shape as the given evidence.
     // TODO/FIXME: Improve this.  Also, I could do this check before generating the possibilities and use it to guide them (e.g. I don't need a search if they give me osmething unambiguous like a[i] < x+y, and if they give me a[5] I only need to fill the 5 hole, not the a[] part).
     def hasCorrectForm(evidence: Iterable[Action])(e: Expr): Boolean = {
       def hasCorrectForm(evidence: Expr, e: Expr): Boolean = (evidence, e) match {
@@ -196,6 +209,7 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
       }
       evidence.forall{ evidence => hasCorrectForm(evidence.asInstanceOf[Expr], e) }
     }
+    // Gets the depth of the given expression.
     def getDepth(e: Expr): Int = {
       def max2(e1: Expr, e2: Expr): Int = Math.max(getDepth(e1), getDepth(e2))
       def maxN(nums: List[Expr]): Int = nums.map(getDepth).reduce(Math.max)//{ (x, y) => Math.max(x, y) }
@@ -248,6 +262,10 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
       goodExprs
   }
 
+  /**
+   * Generates expressions that satisfy the given evidence.
+   * Splits binary operators and generates both sides separately.
+   */
   private def genExpr(evidence: Iterable[(Action, Memory)], maxDepth: Int, curMemory: Option[Memory]): Iterable[Expr] = {
     def binaryOpHelper(constructor: (Expr, Expr) => Expr, isCommutative: Boolean): Iterable[Expr] = {
       val x = evidence.collect{ case (b: BinaryOp, m) => ((b.lhs, m), (b.rhs, m)) }.unzip
@@ -273,6 +291,10 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
       case None => genAllExprs(evidence, maxDepth, curMemory)
     }
   }
+
+  /**
+   * Attempts to fill the given hole with the given generator function, recursing to increase the depth if it cannot do so.
+   */
   private def holeFiller[T >: Null <: Stmt](stmt: Stmt, evidence: Iterable[(Action, Memory)], depth: Int, curMemory: Option[Memory], generator: (Iterable[(Action, Memory)], Int, Option[Memory]) => Iterable[T]): T = {
     var possibilities = generator(evidence, depth, curMemory)
     val newStmt = possibilitiesToExpr[T](possibilities, null)
@@ -286,10 +308,18 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
     }
     newStmt
   }
+
+  /**
+   * Fills an expression hole.
+   */
   protected[synthesis] def fillExprHole(expr: Expr, depth: Int = INITIAL_EXPR_DEPTH, curMemory: Option[Memory] = None): Expr = expr match {
     case ExprEvidenceHole(evidence) => holeFiller(expr, evidence, depth, curMemory, genExpr)
     case _ => expr
   }
+
+  /**
+   * Fills holes in the given statements.
+   */
   protected[synthesis] def fillHoles(stmts: List[Stmt], isPartialTrace: Boolean, curMemory: Option[Memory] = None, depth: Int = INITIAL_EXPR_DEPTH): List[Stmt] = {
     def genStmt(evidence: Iterable[(Action, Memory)], maxDepth: Int, curMemory: Option[Memory]): Iterable[Stmt] = evidence.head._1 match {
       case _: Expr => genExpr(evidence, maxDepth, curMemory)

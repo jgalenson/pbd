@@ -3,6 +3,9 @@ package pbd.lang
 import AST._
 import ASTUtils._
 
+/**
+ * An executor that caches the result of each expression.
+ */
 class CachingExecutor(private val functions: Map[String, Program], private val printer: Printer, private val holeHandler: (Memory, Hole) => Stmt = Executor.errorOnHole, private val shouldPrint: Boolean = false) extends Executor(functions, printer, holeHandler, shouldPrint) {
 
   import scala.collection.mutable.{ HashMap => MHashMap }
@@ -30,15 +33,6 @@ class CachingExecutor(private val functions: Map[String, Program], private val p
 	equivalences += ((initMem, e) -> (if (memoriesAreEqual(memory, initMem)) None else Some(memory.clone), result))
 	result
     }
-    /*val key = (memory, e)
-    val resultOpt = equivalences.get(key)
-    if (resultOpt != null)
-      resultOpt
-    else {
-      val newResult = super.eval(memory, e)
-      equivalences.put(key, newResult)
-      newResult
-    }*/
   }
 
 }

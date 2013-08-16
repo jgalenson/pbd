@@ -1,0 +1,22 @@
+Building
+--------
+
+To build the project, simply run:
+
+make slow
+
+Note that sbt will not build this project until https://issues.scala-lang.org/browse/SI-7455 is fixed,
+which should be Scala 2.10.3/2.11.
+
+Running
+-------
+
+You can run the following examples:
+
+Selection sort: scala -cp target/scala-2.10/classes/ pbd.test.GuiTest
+Tree insertion: scala -cp target/scala-2.10/classes/ pbd.test.RBTree tinsert
+Left rotation: scala -cp target/scala-2.10/classes/ pbd.test.RBTree lrotate
+RB insertion: scala -cp target/scala-2.10/classes/ pbd.test.RBTree rbinsert
+DSW: scala -cp target/scala-2.10/classes/ pbd.test.Graph
+
+The scripts in the test_scripts/ directory can be used to test these.

@@ -9,6 +9,8 @@ import pbd.Utils._
 import scala.collection.mutable.{ Map, Set, ListBuffer }
 import scala.collection.immutable.{ Map => IMap }
 
+/* The shape type hierarchy. */
+
 // TODO: Separate out location (x,y,w,h) from data?
 // TODO: Think of a way to clean up Arrow?
 // TODO: Fix ids: IVal might neet it if we can have multiples with the same val.
@@ -18,8 +20,10 @@ sealed abstract class Shape {
   var width: Int
   var height: Int
 }
+
 sealed abstract class HeapObject extends Shape
-case class NullShape(id: Int, var x: Int, var y: Int, var width: Int, var height: Int) extends HeapObject{
+
+case class NullShape(id: Int, var x: Int, var y: Int, var width: Int, var height: Int) extends HeapObject {
   override def equals(o: Any) = o match { case NullShape(id2, _, _, _, _) => id == id2 case _ => false }  // Nulls need an id since all their other fields can change.
   override def hashCode: Int = id.hashCode
 }
@@ -31,6 +35,7 @@ sealed abstract class Var extends Shape {
 sealed abstract class Val extends Shape {
   def data: Primitive
 }
+
 case class IVal(data: Primitive, var x: Int, var y: Int, var width: Int, var height: Int) extends Val {
   override def hashCode: Int = data.hashCode  // All the other fields can change.
 }
@@ -112,6 +117,7 @@ protected[gui] object Shape {
 
   import scala.annotation.tailrec
 
+  // Constants that control the size and color of shapes.
   val DEFAULT_WIDTH = 20
   val DEFAULT_HEIGHT = 20
   private val FONT_SIZE = 12
@@ -125,9 +131,12 @@ protected[gui] object Shape {
   val NULL_HEIGHT = 6
   val OBJECT_SPACING = 40
 
+  // Counter for shape unique IDs
   private var lastID = -1
 
+  // Draws the given shape.
   def draw(g: Graphics2D, shape: Shape, getChildren: Shape => Iterable[Shape], colorer: PartialFunction[Shape, Color], arrowColorer: PartialFunction[Arrow, Color], isShadow: Boolean = false, parent: Option[Shape] = None): Unit = {
+    // Utility methods to draw rectangles and text in certain positions.
     def doRect(x: Int, y: Int, w: Int, h: Int) {
       val oldStroke = g.getStroke()
       if (!isShadow && (colorer.isDefinedAt(shape) || (parent.isDefined && colorer.isDefinedAt(parent.get))))
@@ -159,6 +168,7 @@ protected[gui] object Shape {
       g.setFont(FONT)
       drawTextCentered(str, x, y, w, h)
     }
+    // Draws the shape.
     val curColor = (colorer.orElse[Shape, Color]{ case (shape: Shape) => DEFAULT_COLOR })(shape)
     if (parent.isEmpty && !isShadow)
       g.setColor(curColor)
@@ -208,7 +218,9 @@ protected[gui] object Shape {
     }
   }
 
-  /* Based on the second-to-last answer from http://mathforum.org/library/drmath/view/54146.html. */
+  /* Draws an arrow.
+   * Based on the second-to-last answer from http://mathforum.org/library/drmath/view/54146.html.
+   */
   def drawArrow(g: Graphics2D, a: Arrow, arrowColorer: PartialFunction[Arrow, Color]): Unit = {
     val oldStroke = g.getStroke()
     if (arrowColorer.isDefinedAt(a)) {
@@ -228,11 +240,14 @@ protected[gui] object Shape {
     }
   }
 
+  // Makes a null shape.
   def makeNull(x: Int, y: Int, w: Int, h: Int): NullShape = {
     lastID += 1
     NullShape(lastID, x, y, w, h)
   }
 
+  // Makes an arrow.
+  // Note that we draw null arrows as a line through the box, not a line to the null shape.
   def makeArrow(srcX: Int, srcY: Int, srcW: Int, srcH: Int, dst: Option[Shape]): Arrow = {
     lastID += 1
     dst match {
@@ -240,6 +255,7 @@ protected[gui] object Shape {
       case Some(target) => Arrow(lastID, dst, srcX + srcW / 2, srcY + srcH / 2, getArrowDst(srcX + srcW / 2, target.x, target.width), getArrowDst(srcY + srcH / 2, target.y, target.height), false)
     }
   }
+  // Updates the given arrow to point to the given target and location.
   def updateArrow(a: Arrow, srcX: Int, srcY: Int, srcW: Int, srcH: Int, newTarget: Option[Shape]) = {
     a.target = newTarget
     newTarget match {
@@ -247,8 +263,11 @@ protected[gui] object Shape {
       case Some(target) => a.srcX = srcX + srcW / 2; a.srcY = srcY + srcH / 2; a.dstX = getArrowDst(a.srcX, target.x, target.width); a.dstY = getArrowDst(a.srcY, target.y, target.height)
     }
   }
+  // Gets the destination the arrow should point in one dimention (i.e., we can call this with x/width or y/height.
+  // The arrow points to the closest corner of the target.
   private def getArrowDst(src: Int, dst: Int, wh: Int): Int = if (src <= dst + wh / 2) dst else dst + wh
 
+  // Gets the width of a shape.
   def widthOfVar(name: String, value: Value, g: Graphics): Int = value match {
     case p: Primitive => math.max(DEFAULT_WIDTH, math.max(stringWidth(g, name), stringWidth(g, stringOfPrimitive(p))))
     case _: ArrayValue | _: Object | Null => math.max(DEFAULT_WIDTH, stringWidth(g, name))
@@ -264,6 +283,7 @@ protected[gui] object Shape {
   def widthOfProgram(p: Program, g: Graphics): Int = widthOfString(p.name, g)
   def widthOfString(s: String, g: Graphics): Int = math.max(DEFAULT_WIDTH, stringWidth(g, s))
 
+  // Gets the height of a shape.
   def heightOfVar(name: String, value: Value, g: Graphics): Int = value match {
     case _: Primitive => DEFAULT_HEIGHT + { if (name.isEmpty) 0 else g.getFontMetrics.getAscent() + g.getFontMetrics.getDescent() }
     case _: ArrayValue | _: Object | Null => DEFAULT_HEIGHT
@@ -278,8 +298,10 @@ protected[gui] object Shape {
   def heightOfProgram(p: Program, g: Graphics): Int = heightOfString(p.name, g)
   def heightOfString(s: String, g: Graphics): Int = DEFAULT_HEIGHT
 
+  // Gets the actual width of the given string (which can be less than the default).
   def stringWidth(g: Graphics, s: String): Int = if (s.isEmpty) 0 else g.getFontMetrics().stringWidth(s) + 2 * TEXT_PADDING
 
+  // Moves the given shape the given amount.
   def moveShape(shape: Shape, dx: Int, dy: Int, getChildren: Shape => Iterable[Shape], getArrowsTo: Shape => Iterable[Arrow], getArrowsFrom: Shape => Iterable[Arrow]): Unit = {
     getChildren(shape).foreach{ e => moveShape(e, dx, dy, getChildren, getArrowsTo, getArrowsFrom) }
     shape.x += dx
@@ -291,6 +313,7 @@ protected[gui] object Shape {
     getArrowsTo(shape).foreach{ a => updateArrow(a, a.srcX, a.srcY, 0, 0, a.target) }
   }
 
+// Checks whether the given rhs shape can be dragged on top of the given lhs shape (e.g., assignment or call).
   def shapesCanReceive(lhs: Shape, rhs: Shape, typer: Typer, isExpr: Boolean): Boolean = {
     if (!shapeToValue.isDefinedAt(rhs))
       return false
@@ -308,6 +331,7 @@ protected[gui] object Shape {
     canReceive(lhs)
   }
 
+  // Does the given assignment.  Note that this changes memory.
   def assign(lhs: Shape, rhs: Shape, pointees: Map[Option[Shape], Set[Arrow]], literalShapes: Set[Shape]): Action = {
     // Update the gui with the result of the assignment
     def updateGUIWithAssignment(lhs: Shape, rhs: Shape): Unit = {
@@ -346,11 +370,13 @@ protected[gui] object Shape {
     Assign(shapeToLVal(lhs), shapeToExpr(rhs, literalShapes))
   }
 
+  // Gets the binding representing the given variable and its value.
   def getBinding(v: Var): (String, Value) = v.name -> ((v: @unchecked) match {
     case Prim(_, Some(data), _, _, _, _) => data
     case Pointer(_, Arrow(_, target, _, _, _, _, _), _, _, _, _) => shapeToValue(target)
   })
 
+  // Gets the AST node representing the given shape.
   def shapeToValue(shape: Option[Shape]): Value = shape match {
     case None => Null
     case Some(s) => shapeToValue(s)
@@ -379,7 +405,6 @@ protected[gui] object Shape {
     case Obj(Object(id, _, _), _, _, _, _) => ObjectID(id)  // If we returned the object directly, executing a call would modify the object directly.
     case _ => (shapeToLVal orElse shapeToValue)(shape)
   })(shape)
-
   private val shapeToLVal: PartialFunction[Shape, LVal] = {
     case v: Var => ASTVar(v.name)
     case Field(field, Obj(Object(id, _, _), _, _, _, _)) => FieldAccess(ObjectID(id), field.name)  // As above in shapeToExpr, we return a reference to the object and not the object itself since it is only a copy of the real object in the synthesizer.
@@ -397,19 +422,20 @@ protected[gui] object Shape {
 	f(shape)
   }
 
+  // Makes arrows for a call.
   def makeCallArrow(x: Int, y: Int, w: Int, numArgs: Int, target: Option[Shape], i: Int, pointees: Map[Option[Shape], Set[Arrow]]): Arrow = {
     val arrow = makeArrow(getCallArrowX(x, w, numArgs, i), y, 0, 0, target)
     pointees.getOrElseUpdate(target, Set.empty) += arrow
     arrow
   }
   def getCallArrowX(x: Int, w: Int, numArgs: Int, i: Int): Int = (x + ((i + 1).toFloat / (numArgs + 1)) * w).toInt
-
   def makeCallResultArrow(x: Int, y: Int, w: Int, h: Int, target: Option[Shape], pointees: Map[Option[Shape], Set[Arrow]]): Arrow = {
     val arrow = makeArrow(x + w / 2, y + h, 0, 0, target)
     pointees.getOrElseUpdate(target, Set.empty) += arrow
     arrow
   }
 
+  // Gets a string representation of the given call.
   def makeCallString(c: Callable, args: List[Expr], result: Option[Value], printer: Printer): String = {
     def stringOfOptExpr[T <: Expr](e: Option[T]): String = e match { case Some(e) => printer.stringOfExpr(e) case None => "?" }
     val fullArgs = args.map{ x => Some(x) }.padTo(c.numInputs, None)

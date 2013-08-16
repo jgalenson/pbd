@@ -4,21 +4,42 @@ object Utils {
 
   import scala.util.Random.nextInt
 
+  /**
+   * An exception that is faser than a normal one since it does not
+   * need to fill in the stack trace.
+   */
   trait FastException extends RuntimeException {
     override def fillInStackTrace: Throwable = this
   }
 
+  /**
+   * Converts an iterable into a string.
+   */
   def iterableToString[T](x: Iterable[T], sep: String, toStringFn: T => String = (t: T) => t.toString, init: String = ""): String = x.foldLeft(init)((acc, cur) => acc + (if (acc == init) "" else sep) + toStringFn(cur))
 
+  /**
+   * Ensures that the given property holds over the given iterable.
+   */
   def holdsOverIterable[T](x: Iterable[T], f: (T, T) => Boolean): Boolean = x.size == 1 || x.sliding(2).forall{ l => f(l.head, l.tail.head) }
 
-  // Generates a random number in [min, max].
+  /**
+   * Generates a random number in [min, max].
+   */
   def nextBoundedInt(min: Int, max: Int): Int = nextInt(max - min + 1) + min
 
+  /**
+   * Picks a random element.
+   */
   def randomElement[T](s: Seq[T]): T = s(nextInt(s.size))
 
+  /**
+   * Chooses either the singular or plural form.
+   */
   def pluralize(singular: String, plural: String, count: Int): String = if (count == 1) singular else plural
 
+  /**
+   * Executes the given function with the given timeout.
+   */
   trait ExecutionResult[+T]
   case class NormalResult[T](val result: T) extends ExecutionResult[T]
   case class ExceptionThrown(val e: Throwable) extends ExecutionResult[Nothing]
@@ -38,16 +59,25 @@ object Utils {
     }
   }
 
+  /**
+   * Rounds the given double to the given number of places.
+   */
   def round(n: Double, numPlaces: Int): Double = {
     val p = math.pow(10, numPlaces)
     (n * p).toInt / p.toDouble
   }
 
+  /**
+   * Ensures that the given list is a singleton and returns its only element.
+   */
   def singleton[T](l: List[T]): T = l match {
     case x :: Nil => x
     case _ => throw new RuntimeException("List " + l + " is not a singleton.")
   }
 
+  /**
+   * Wrappers for the SwingUtilities/SwingWorker invoke* methods that use nice lambdas.
+   */
   def invokeAndWait(f: => Unit) = javax.swing.SwingUtilities.invokeAndWait(new Runnable() {
     def run() = f
   })
@@ -66,6 +96,9 @@ object Utils {
     override def done() = doneFn(get())
   }).execute()
 
+  /**
+   * Helper methods to setup and add controls such as menu items and buttons.
+   */
   import javax.swing.AbstractButton
   import java.awt.Container
   import java.awt.event.{ ActionEvent, ActionListener }
@@ -84,6 +117,9 @@ object Utils {
   class NotImplementedError extends Error
   def TODO: Nothing = throw new NotImplementedError
 
+  /**
+   * Times the execution of the given statement.
+   */
   def time[T](f: => T): T = {
     val startTime = System.currentTimeMillis()
     val result = f

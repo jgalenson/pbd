@@ -1,5 +1,9 @@
 package pbd.lang
 
+/**
+ * Parses strings into AST.
+ * Note that this is fairly buggy; see test/TestCompiler for some examples.
+ */
 object Compiler {
   import scala.collection.mutable.{ Map => MMap, HashMap => MHashMap, Stack }
   import AST._

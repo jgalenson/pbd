@@ -5,12 +5,18 @@ import ASTUtils._
 import pbd.Utils._
 import scala.annotation.tailrec
 
+/**
+ * Executes programs.
+ */
 class Executor(private val functions: Map[String, Program], private val printer: Printer, private val holeHandler: (Memory, Hole) => Stmt = Executor.errorOnHole, private val shouldPrint: Boolean = false) extends Serializable {
 
   import Executor.ExecuteError
   import scala.collection.immutable.Map
   import scala.collection.mutable.{ Set => MSet }
 
+  /**
+   * Executes the given statement
+   */
   protected def exec(memory: Memory, s: Stmt): Value = {
     //println("Executing " + printer.stringOfStmt(s) + " with memory " + printer.stringOfMemory(memory))
     s match {
@@ -146,6 +152,10 @@ class Executor(private val functions: Map[String, Program], private val printer:
       case UnknownJoinIf(_, _) => throw new ExecuteError(s, "Cannot execute: " + s)
     }
   }
+
+  /**
+   * Executes the given loop.
+   */
   protected def doLoop(memory: Memory, l: Loop): Value = {
     @tailrec def runLoop(): Value = {
       val result = exec(memory, l.condition)
@@ -164,7 +174,15 @@ class Executor(private val functions: Map[String, Program], private val printer:
     }
     runLoop()
   }
+
+  /**
+   * Executes the given loop body.
+   */
   protected def doLoopBody(memory: Memory, l: Loop): Value = execStmts(memory, l.body)
+
+  /**
+   * Executes the given expression
+   */
   protected def eval(memory: Memory, e: Expr): Value = {
     //println("Evaluating " + printer.stringOfExpr(e) + " with memory " + printer.stringOfMemory(memory))
     def handleIntComparison(l: Expr, r: Expr, op: (Int, Int) => Boolean): Value = {
@@ -275,28 +293,53 @@ class Executor(private val functions: Map[String, Program], private val printer:
 	  handleIntArithmetic(l, rVal, _ / _)
     }
   }
+
+  /**
+   * Evaluates an expression into a boolean/int.
+   */
   private def evalBoolean(memory: Memory, e: Expr): Boolean = eval(memory, e).asInstanceOf[BooleanConstant].b
   private def evalInt(memory: Memory, e: Expr): Int = eval(memory, e).asInstanceOf[IntConstant].n
+
+  /**
+   * Executes the given statement on a copy of the given memory and returns the result and the effects.
+   */
   protected[pbd] def execute(memory: Memory, s: Stmt): (Value, Memory) = {
     val clonedMemory = memory.clone
     (exec(clonedMemory, s), clonedMemory)
   }
+  /**
+   * Evaluates the given expression on a copy of the given memory and returns the result.
+   */
   protected[pbd] def evaluate(memory: Memory, s: Stmt): Value = execute(memory, s)._1
   protected[pbd] def evaluateBoolean(memory: Memory, s: Stmt): Boolean = evaluate(memory, s).asInstanceOf[BooleanConstant].b
   protected[pbd] def evaluateInt(memory: Memory, e: Expr): Int = evaluate(memory, e).asInstanceOf[IntConstant].n
 
-  /* Execute a list of statements and return the result and final memory. */
+  /**
+   * Executes a list of statements.
+   */
   protected def execStmts(memory: Memory, stmts: List[Stmt]): Value = {
     if (java.lang.Thread.interrupted())
       throw new InterruptedException
     stmts.foldLeft(UnitConstant: Value) { (prev, s) => if (isErrorOrFailure(prev) || prev == BreakHit) prev else exec(memory, s) }
   }
+
+  /**
+   * Executes a list of statements on a copy of the given memory and returns the result and final memory.
+   */
   protected[pbd] def executeStmts(memory: Memory, stmts: List[Stmt]): (Value, Memory) = {
     val clonedMemory = memory.clone
     (execStmts(clonedMemory, stmts), clonedMemory)
   }
+
+  /**
+   * Executes a list of statements on a copy of the given memory and returns the result.
+   */
   protected[pbd] def evaluateStmts(memory: Memory, stmts: List[Stmt]): Value = executeStmts(memory, stmts)._1
 
+  /**
+   * Executes the given program on the given inputs.
+   * cloneMemory controls whether we should modify the inputs directly (e.g., if used for a call) or clone them first (e.g., if running a program on real inputs).
+   */
   protected[pbd] def executeProgram(program: Program, inputs: List[(String, Value)], cloneMemory: Boolean): (Value, Memory) = {
     val inputMem = new Memory(inputs)
     val mem = if (cloneMemory) inputMem.clone else inputMem
@@ -314,6 +357,9 @@ class Executor(private val functions: Map[String, Program], private val printer:
 
 import scala.collection.mutable.Stack
 
+/**
+ * The iterator executor executes statements one step at a time, allowing for fine-grained control by the caller.
+ */
 class IteratorExecutor private (private var iterator: Stack[Stmt], private val functions: Map[String, Program], private val printer: Printer, private val holeHandler: (Memory, Hole) => Stmt) extends Executor(functions, printer, holeHandler) {
 
   def this(functions: Map[String, Program], printer: Printer, holeHandler: (Memory, Hole) => Stmt = Executor.errorOnHole) = this(Stack.empty[Stmt], functions, printer, holeHandler)
@@ -357,8 +403,14 @@ object Executor {
     override def toString: String = "ExecuteError(" + (new Printer(Map[String, Value => String](), false)).stringOfStmt(s) + ", " + msg + ")"
   }
 
+  /**
+   * Throws an error whenever we reach a hole.
+   */
   protected[lang] def errorOnHole(memory: Memory, hole: Hole): Nothing = throw new ExecuteError(hole.asInstanceOf[Stmt], "I'm trying to execute a hole when there shouldn't be a hole.")
 
+  /**
+   * By default, if we reach a possibility hole, we can only continue if all possibilities return the same value.
+   */
   protected[pbd] def simpleHoleHandler(executor: Executor)(memory: Memory, hole: Hole): Stmt = hole match {
     case PossibilitiesHole(possibilities) => 
       val results = possibilities flatMap { s => try { val (v, m) = executor.execute(memory, s); if (v == ErrorConstant) Nil else List((s, v, m)) } catch { case _: Throwable => Nil } }  // TODO: I shouldn't need the catch here: all errors that can arise should return ErrorConstants in execute.  Same in findFirstNewRandomInput, in findBest*, in fillHoles.genExpr, and in simpleInputPruning.

@@ -3,12 +3,18 @@ package pbd.lang
 import AST._
 import pbd.Utils._
 
+/**
+ * Converts AST elements into strings.
+ */
 protected[pbd] class Printer(helpers: PartialFunction[String, Value => String], short: Boolean) extends Serializable {
 
   import scala.collection.immutable.Map
   import scala.collection.immutable.Set
   import pbd.lang.Memory
 
+  /**
+   * Converts a type into a string.
+   */
   private def stringOfType(t: Type): String = t match {
     case ErrorType => "ERROR"
     case UnitType => "Unit"
@@ -19,6 +25,10 @@ protected[pbd] class Printer(helpers: PartialFunction[String, Value => String], 
     case ObjectType(name) => name
     case GenericType => "?"
   }
+
+  /**
+   * Converts a value into a string.
+   */
   protected[pbd] def stringOfValue(v: Value, seen: Set[Object] = Set.empty): String = v match {
     case p: Primitive => ASTUtils.stringOfPrimitive(p)
     case ErrorConstant => "ERROR"
@@ -35,6 +45,10 @@ protected[pbd] class Printer(helpers: PartialFunction[String, Value => String], 
       }
     case Null => "null"
   }
+
+  /**
+   * Converts an expression into a string.
+   */
   protected[pbd] def stringOfExpr(e: Expr): String = {
     // Helper so that we use parentheses to show precedence.
     def stringOfOperand(o: Expr): String = o match {
@@ -63,6 +77,8 @@ protected[pbd] class Printer(helpers: PartialFunction[String, Value => String], 
       case LiteralExpr(e) => "LiteralExpr(" + stringOfExpr(e) + ")"
     }
   }
+
+  // Helpers
   protected def getComparisonSeparator(c: Comparison): String = c match {
     case EQ(_, _) => " = "
     case NE(_, _) => " != "
@@ -79,6 +95,10 @@ protected[pbd] class Printer(helpers: PartialFunction[String, Value => String], 
     case _ => " {\n" + stringOfStmts(b, indent + "  ") + "\n" + indent + "}"
   }
   private def stringOfPath(c: Action, b: List[Stmt], prefix: String, indent: String = ""): String = prefix + " (" + stringOfAction(c) + ")" + stringOfBody(b, indent)
+
+  /**
+   * Converts an action into a string.
+   */
   protected[pbd] def stringOfAction(a: Action, indent: String = ""): String = a match {
     case e: Expr => stringOfExpr(e)
     case h: Hole => stringOfHole(h)
@@ -93,12 +113,20 @@ protected[pbd] class Printer(helpers: PartialFunction[String, Value => String], 
     case UnorderedStmts(s) => "unordered" + stringOfBody(s, indent)
     case Snapshot(m) => "snapshot " + stringOfMemory(m)
   }
+
+  /**
+   * Converts a hole into a string.
+   */
   protected[pbd] def stringOfHole(h: Hole) = h match {
     case ExprEvidenceHole(evidence) => "Hole(" + iterableToString(evidence, " and ", { t: (Action, Memory) => stringOfAction(t._1, "") + " with " + stringOfMemory(t._2) }) + ")"
     case StmtEvidenceHole(evidence) => "Hole(" + iterableToString(evidence, " and ", { t: (Action, Memory) => stringOfAction(t._1, "") + " with " + stringOfMemory(t._2) }) + ")"
     case PossibilitiesHole(possibilities) => "Hole(" + iterableToString(possibilities, " or ", { s: Stmt => stringOfStmt(s, "") }) + ")"
     case _: Unseen => "?"
   }
+
+  /**
+   * Converts a statement into a string.
+   */
   protected[pbd] def stringOfStmt(s: Stmt, indent: String = ""): String = indent + (s match {
     case a: Action => stringOfAction(a, indent)
     case h: Hole => stringOfHole(h)
@@ -110,6 +138,8 @@ protected[pbd] class Printer(helpers: PartialFunction[String, Value => String], 
       val s = stringOfStmt(i, indent) + (if (u.nonEmpty) "\n" + indent + "unknown" + stringOfBody(u, indent) else "")
       s.replaceAll("}\nunknown", "} unknown")
   })
+
+  // Convert things to strings.
   protected[pbd] def stringOfStmts(stmts: Iterable[Stmt], indent: String = ""): String = iterableToString(stmts, "\n", { s: Stmt => stringOfStmt(s, indent) })
   protected[pbd] def stringOfInputs(inputs: List[(String, Value)], sep: String) = iterableToString(inputs, sep, { t: (String, Value) => "input " + t._1 + " -> " + stringOfValue(t._2) })
   protected[pbd] def stringOfProgram(program: Program): String = "def " + program.name + "(" + iterableToString(program.inputs, ", ", { i: (String, Type) => "input " + i._1 + ": " + stringOfType(i._2) }) + ") {\n" + stringOfStmts(program.stmts, "  ") + "\n}"
@@ -118,6 +148,9 @@ protected[pbd] class Printer(helpers: PartialFunction[String, Value => String], 
 
 }
 
+/**
+ * Produces a prettier string of code by hiding some possibilities in holes.
+ */
 protected[pbd] class PrettyPrinter(helpers: PartialFunction[String, Value => String], short: Boolean) extends Printer(helpers, short) {
 
   override def stringOfHole(h: Hole) = h match {
@@ -146,9 +179,19 @@ protected[pbd] class PrettyPrinter(helpers: PartialFunction[String, Value => Str
 
 }
 
+/**
+ * Gets the types of AST elements.
+ */
 protected[pbd] class Typer(functions: Map[String, Program], objectTypes: Map[String, List[(String, Type)]]) extends Serializable {
 
+  /**
+   * Gets the type of a value.
+   */
   protected[pbd] def typeOfValue(v: Value): Type = Typer.typeOfValue(v)
+
+  /**
+   * Gets the type of an expression.
+   */
   protected[pbd] def typeOfExpr(e: Expr, memory: Memory): Type = e match {
     case Var(name) => typeOfValue(memory(name))
     case FieldAccess(o, f) => objectTypes(typeOfExpr(o, memory).asInstanceOf[ObjectType].name).toMap.get(f).get
@@ -158,6 +201,10 @@ protected[pbd] class Typer(functions: Map[String, Program], objectTypes: Map[Str
     case l: TLiteralExpr[_] => typeOfExpr(l.l, memory)
     case _ => typeOfExprNoMemory(e)
   }
+
+  /**
+   * Gets the type of an expression without using a memory.
+   */
   private def typeOfExprNoMemory(e: Expr): Type = e match {
     case v: Value => typeOfValue(v)
     case ArrayLength(_) => IntType
@@ -169,6 +216,10 @@ protected[pbd] class Typer(functions: Map[String, Program], objectTypes: Map[Str
     case a: Arithmetic => IntType
     case s => throw new IllegalArgumentException("Cannot get the type of stmt " + s + " without memory.")
   }
+
+  /**
+   * Gets the type of an action.
+   */
   protected[pbd] def typeOfAction(a: Action, memory: Memory): Type = a match {
     case e: Expr => typeOfExpr(e, memory)
     case Assign(_, rhs) => typeOfExpr(rhs, memory)
@@ -183,6 +234,10 @@ protected[pbd] class Typer(functions: Map[String, Program], objectTypes: Map[Str
     case Snapshot(_) => UnitType
     case UnseenStmt() => throw new IllegalArgumentException("Cannot get type of UnseenStmt")
   }
+
+  /**
+   * Gets the type of a statement.
+   */
   private def typeOfStmt(s: Stmt, memory: Memory): Type = s match {
     case a: Action => typeOfAction(a, memory)
     case If(_, _, _, _) | UnknownJoinIf(_, _) => UnitType
@@ -190,6 +245,9 @@ protected[pbd] class Typer(functions: Map[String, Program], objectTypes: Map[Str
     case StmtEvidenceHole(_) => throw new IllegalArgumentException("Cannot get type of " + s)
   }
 
+  /**
+   * Checks whether the given right-hand can be assigned to the given left-hand.
+   */
   protected[pbd] def canAssign(lhs: Expr, rhs: Expr): Boolean = {
     canAssignTypes(typeOfExprNoMemory(lhs), typeOfExprNoMemory(rhs))
   }
@@ -213,6 +271,9 @@ protected[pbd] class Typer(functions: Map[String, Program], objectTypes: Map[Str
 
 protected[pbd] object Typer {
 
+  /**
+   * Gets the type of a value.
+   */
   def typeOfValue(v: Value): Type = v match {
     case ErrorConstant => ErrorType
     case UnitConstant => UnitType
@@ -328,12 +389,18 @@ object ASTUtils {
 
   import scala.collection.mutable.{ Set => MSet }
 
+  /**
+   * Gets the string of a primitive value.
+   */
   protected[pbd] def stringOfPrimitive(p: Primitive): String = p match {
     case IntConstant(n) => n.toString
     case BooleanConstant(b) => b.toString
     case StringConstant(s) => "\"" + s + "\""
   }
 
+  /**
+   * Checks whether the given value is either an error or a failure of some sort.
+   */
   protected[pbd] def isErrorOrFailure(v: Value): Boolean = v.isInstanceOf[IsErrorOrFailure]
 
   /**
@@ -364,6 +431,9 @@ object ASTUtils {
     areEqual(v1, v2, true, true, seenObjectIDs) && memoriesAreEqual(m1, m2, seenObjectIDs)
   }
 
+  /**
+   * Builds a map that maps each statement to its parent, i.e., enclosing statement.
+   */
   protected[pbd] def getParents(code: List[Stmt]): Map[Stmt, Option[Stmt]] = {
     def getParentsForStmts(code: List[Stmt], parent: Option[Stmt], acc: Map[Stmt, Option[Stmt]]): Map[Stmt, Option[Stmt]] = {
       def getParentsForStmt(cur: Stmt, parent: Option[Stmt], acc: Map[Stmt, Option[Stmt]]): Map[Stmt, Option[Stmt]] = (cur match {
@@ -377,7 +447,10 @@ object ASTUtils {
     getParentsForStmts(code, None, Map.empty) 
   }
 
-  // All values this returns are from the first argument (the old memory).
+  /**
+   * Builds a diff of two memories, which includes changed variables, fields, and array elements.
+   * All values this returns are from the first argument (the old memory).
+   */
   protected[pbd] def diffMemories(memory: Memory, newMemory: Memory): (Map[String, Value], Map[(Int, String), Value], Map[(Int, Int), Value]) = {
     // TODO-bug: I should really track all assigns here.  If we execute an assignment that assigns to the current value, I don't currently catch that.
     val oldKeySet = memory.keys.toSet
@@ -412,7 +485,10 @@ object ASTUtils {
     ((newVars ++ modifiedVars).toMap, modifiedObjects.toMap, modifiedArrays.toMap)
   }
 
-  // blockMarker stores (first stmt in block, first stmt after block), which has already determined to be legal.  If the two statements are the same, the block is empty.
+  /**
+   * Modifies the given code by modifying the code delineated by blockMarker with blockMaker.
+   * blockMarker stores (first stmt in block, first stmt after block), which has already determined to be legal.  If the two statements are the same, the block is empty.
+   */
   protected[pbd] def addBlock(code: List[Stmt], blockMarker: (Option[Stmt], Option[Stmt]), blockMaker: List[Stmt] => Stmt): List[Stmt] = blockMarker._1 match {
     case Some(firstInBlock) =>
       var replaced = false
@@ -443,8 +519,11 @@ object ASTUtils {
     case None => code :+ blockMaker(Nil)
   }
 
-  // If the parameter is a condition, gets the statement that owns it.
-  // The call to getParents is inefficient, but who cares.
+  /**
+   * Gets the owning/enclosing statement.
+   * If the parameter is a condition, gets the statement that owns it.
+   * The call to getParents is inefficient, but who cares.
+   */
   protected[pbd] def getOwningStmt(code: List[Stmt], s: Stmt): Stmt = getParents(code)(s) match {
     case Some(p) => p match {
       case If(c, _, _, _) if c eq s => p
@@ -454,6 +533,9 @@ object ASTUtils {
     case None => s
   }
 
+  /**
+   * Produces a new binary op of the same form as the given one with the given lhs and rhs.
+   */
   protected[pbd] def copyBinaryOp(op: BinaryOp, newLeft: Expr, newRight: Expr): BinaryOp = op match {
     case EQ(_, _) => EQ(newLeft, newRight)
     case NE(_, _) => NE(newLeft, newRight)
@@ -469,6 +551,9 @@ object ASTUtils {
     case Div(_, _) => Div(newLeft, newRight)
   }
 
+  /**
+   * Produces a new range of the same form as the given one with the given min and max.
+   */
   protected[pbd] def copyRange(r: Range, newMin: Expr, newMax: Expr): Range = r match {
     case To(_, _) => To(newMin, newMax)
     case Until(_, _) => Until(newMin, newMax)

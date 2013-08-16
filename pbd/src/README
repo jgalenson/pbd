@@ -1,0 +1,31 @@
+Here is a brief overview of the source code:
+
+src/
+  Controller: This links the synthesis and the GUI together.
+  Utils: Contains random utility methods.
+  lang/: Defines and manipulates our target language.
+    AST: Defines the AST classes.
+    ASTUtils: Utilities for manipulating the AST.
+    Memory: A class that represents the memory of a running program.
+    Executor: Classes for executing programs.
+    CachingExecutor: An executor that caches the results of expressions.
+    Compiler: A (buggy) parser.
+  gui/: The GUI.
+    SynthesisGUI: Ties the GUI components together.
+    Canvas: The main part of the GUI that displays and allows manipulation of the program.
+    Shape: The shapes that are used on the canvas and utilities for manipulating them.
+    Code: Pane that displays the code for the current trace.
+    Controls: Toolbars and menubars.
+  synthesis/: The synthesis.
+    CodeGenerator: Generates expressions and statements given demonstrations.
+    Synthesis: Contains most of the synthesis logic.
+    SynthesisUtils: Contains utilities used in synthesis.
+  test/: Unit tests and larger examples.
+    Test: Code that tests synthesis.
+    TestCompiler: Code that tests the parser.
+    TestExecution: Code that tests executing programs.
+    TestSynthesis: Code that tests synthesis.
+    TestCommon: Utilities for testing.
+    GuiTest: Contains some GUI test code as well as the selection sort algorithm.
+    RBTree: Contains the Tree data structure and the insertion and rotation algorithms.
+    Graph: Contains the Graph data structure and the DSW algorithm.

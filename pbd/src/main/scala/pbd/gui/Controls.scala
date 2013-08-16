@@ -10,6 +10,9 @@ import pbd.gui.SynthesisGUI.showInputDialog
 import pbd.Controller._
 import pbd.Utils._
 
+/**
+ * The menu bar.
+ */
 private class Menu(private val synthesisGUI: SynthesisGUI, private val controls: Controls, private val functions: Iterable[Program]) extends JMenuBar {
 
   import Controls._
@@ -45,12 +48,18 @@ private class Menu(private val synthesisGUI: SynthesisGUI, private val controls:
   addHoleMenu()
   addFixProgramMenu()
 
+  /**
+   * Creates the file menu.
+   */
   private def addFileMenu() {
     val file = setupControl(new JMenu("File"), this, KeyEvent.VK_F)
 
     setupControl(new JMenuItem("Quit"), file, _ => synthesisGUI.doExit(), KeyEvent.VK_Q).setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Q, ActionEvent.CTRL_MASK))
   }
 
+  /**
+   * Creates the trace menu that is visible when the user is demonstrating a trace.
+   */
   private def addTraceMenu() {
     trace.setMnemonic(KeyEvent.VK_T)
 
@@ -114,6 +123,9 @@ private class Menu(private val synthesisGUI: SynthesisGUI, private val controls:
     add(trace)
   }
 
+  /**
+   * Creates the hole menu that is visible when the user is choosing among a set of possibilities.
+   */
   def addHoleMenu() {
     hole.setMnemonic(KeyEvent.VK_H)
 
@@ -129,6 +141,9 @@ private class Menu(private val synthesisGUI: SynthesisGUI, private val controls:
     add(hole)
   }
 
+  /**
+   * Creates the fix program menu that is visible when we are walking through the program.
+   */
   def addFixProgramMenu() {
     fixProgram.setMnemonic(KeyEvent.VK_F)
 
@@ -148,6 +163,9 @@ private class Menu(private val synthesisGUI: SynthesisGUI, private val controls:
     add(fixProgram)
   }
 
+  /**
+   * Show/hide various menus.
+   */
   def showTraceMenu() = trace.setEnabled(true)
   def hideTraceMenu() = trace.setEnabled(false)
   def showHoleMenu() = hole.setEnabled(true)
@@ -174,6 +192,9 @@ private class Menu(private val synthesisGUI: SynthesisGUI, private val controls:
     ender(curBlock).setEnabled(given)
   }
 
+  /**
+   * Starts/ends a control-flow block.
+   */
   private def ender(block: Block): JMenuItem = block match {
     case _: Trace => finishTrace
     case Unordered => endUnordered
@@ -215,6 +236,9 @@ private class Menu(private val synthesisGUI: SynthesisGUI, private val controls:
     } }
   }
 
+  /**
+   * Refresh the undo/redo menu items to correspond to whether there are edits to undo/redo.
+   */
   def refreshUndoRedo(undoManager: javax.swing.undo.UndoManager) {
     undo.setEnabled(undoManager.canUndo())
     if (undo.isEnabled())
@@ -230,6 +254,9 @@ private class Menu(private val synthesisGUI: SynthesisGUI, private val controls:
 
 }
 
+/**
+ * The toolbar.
+ */
 private class Toolbar(private val synthesisGUI: SynthesisGUI, private val controls: Controls, private val functions: Iterable[Program]) extends JPanel {
 
   import Controls._
@@ -248,6 +275,9 @@ private class Toolbar(private val synthesisGUI: SynthesisGUI, private val contro
 
   add(emptyBox)
 
+  /**
+   * Creates the trace toolbar that is visible when the user is demonstrating a trace.
+   */
   private def makeTraceToolbar(): Box = {
     val box = Box.createHorizontalBox()
 
@@ -271,6 +301,9 @@ private class Toolbar(private val synthesisGUI: SynthesisGUI, private val contro
     box
   }
 
+  /**
+   * Creates the fix program toolbar that is visible when we are walking through the program.
+   */
   private def makeFixProgramToolbar(): Box = {
     val box = Box.createHorizontalBox()
 
@@ -289,12 +322,18 @@ private class Toolbar(private val synthesisGUI: SynthesisGUI, private val contro
     box
   }
 
+  /**
+   * Creates an empty toolbar.
+   */
   private def makeEmptyBox(): Box = {
     val emptyBox = Box.createHorizontalBox()
     emptyBox.setPreferredSize(traceBox.getPreferredSize())
     emptyBox
   }
   
+  /**
+   * Shows/hides various toolbars.
+   */
   def showTraceToolbar() = showToolbar(traceBox)
   def showFixProgramToolbar(canContinue: Boolean, amInConditional: Boolean, canDiverge: Boolean) {
     stepButton.setEnabled(canContinue)
@@ -314,6 +353,9 @@ private class Toolbar(private val synthesisGUI: SynthesisGUI, private val contro
     }
   }
 
+  /**
+   * Changes the toolbar to correspond to the given block.
+   */
   def nextBlock(block: Option[Block]) = block match {
     case None => ender.setEnabled(false)
     case Some(b) =>
@@ -333,6 +375,9 @@ private class Toolbar(private val synthesisGUI: SynthesisGUI, private val contro
 
 }
 
+/**
+ * Class that controls the menu and toolbar.
+ */
 protected[gui] class Controls(private val synthesisGUI: SynthesisGUI, private val functions: Iterable[Program]) {
 
   import Controls._
@@ -344,6 +389,9 @@ protected[gui] class Controls(private val synthesisGUI: SynthesisGUI, private va
   private val curBlocks = new scala.collection.mutable.Stack[Block]
   private val undoManager = new UndoManager
 
+  /**
+   * Start/finish trace modes.
+   */
   def startTraceMode(isExpr: Boolean, allowFixing: Boolean, isConditional: Boolean, amFindingJoin: Boolean) {
     startBlock(Trace(isExpr, allowFixing, isConditional, amFindingJoin))
   }
@@ -355,6 +403,10 @@ protected[gui] class Controls(private val synthesisGUI: SynthesisGUI, private va
     assert(curBlocks.headOption match { case Some(Trace(false, _, _, _)) => true case _ => false }, curBlocks.headOption)
     endBlock(true)
   }
+
+  /**
+   * Show/hide trace controls.
+   */
   def showTraceControls() {
     menu.enableDisableFixProgramStarters(curBlocks.collect{ case Trace(_, allowFixing, _, _) => allowFixing }.head)
     menu.showTraceMenu()
@@ -371,11 +423,19 @@ protected[gui] class Controls(private val synthesisGUI: SynthesisGUI, private va
     })
     menu.conditionSetOrUnset(curBlocks.head, given)
   }
+
+  /**
+   * Show/hide hole controls.
+   */
   def showHoleControls(allowFixing: Boolean) {
     menu.showHoleMenu()
     menu.enableDisableFixProgramStarters(allowFixing)
   }
   def hideHoleControls() = menu.hideHoleMenu()
+
+  /**
+   * Show/hide fix controls.
+   */
   def showFixingControls(canContinue: Boolean, amInConditional: Boolean, canDiverge: Boolean) {
     menu.showFixProgram(canContinue, amInConditional, canDiverge)
     toolbar.showFixProgramToolbar(canContinue, amInConditional, canDiverge)
@@ -389,6 +449,9 @@ protected[gui] class Controls(private val synthesisGUI: SynthesisGUI, private va
     synthesisGUI.setNoTrace(curBlocks.collect{ case Trace(isExpr, true, _, _) => isExpr }.head)
   }
 
+  /**
+   * Handles undo/redo.
+   */
   def addEdit(e: UndoableEdit) {
     undoManager.addEdit(e)
     menu.refreshUndoRedo(undoManager)
@@ -410,6 +473,9 @@ protected[gui] class Controls(private val synthesisGUI: SynthesisGUI, private va
   def getToolbar(): JPanel = toolbar
   def getHeight(): Int = menu.getHeight() + toolbar.getHeight()
 
+  /**
+   * Adds/removes blocks.
+   */
   private def addBlock(block: Block) {
     curBlocks push block
     menu.startBlock(block)
@@ -458,6 +524,10 @@ protected[gui] class Controls(private val synthesisGUI: SynthesisGUI, private va
       case _ => doEnd(curBlock)
     }
   }
+
+  /**
+   * Adds the given string as an action if it is valid.
+   */
   protected[controls] def addActionIfValid(str: String, shouldDoExpr: Boolean = true) {
     def isLegalStart(newBlock: Block) = curBlocks.headOption match {
       case Some(curBlock) => curBlock match {
@@ -508,6 +578,9 @@ protected[gui] class Controls(private val synthesisGUI: SynthesisGUI, private va
     str.split(";") foreach { s => println(s); addAction(s.trim()) }
   }
 
+  /**
+   * Edits corresonding to starting or removing a block.
+   */
   private abstract class BlockEdit(block: Block) extends AbstractUndoableEdit {
     protected var childEdit: Option[UndoableEdit] = None
     override def canUndo() = childEdit.isDefined
@@ -544,6 +617,9 @@ protected[gui] class Controls(private val synthesisGUI: SynthesisGUI, private va
     }
   }
 
+  /**
+   * Gets the type of the given trace.
+   */
   protected[gui] def getTraceType(): QueryType = curBlocks.lastOption match { 
     case Some(Trace(false, _, _, true)) => FixType
     case Some(Trace(true, _, _, false)) => ExprTrace
@@ -557,6 +633,7 @@ private object Controls {
 
   import pbd.lang.AST.{ Plus, Minus, Times, Div, EQ, NE, LT, LE, GT, GE, And, Or, Not, Var, IntType, BooleanType, GenericType, Action }
 
+  // The built-in operators.
   val builtins = List(BinaryOp("+", (l, r) => Plus(l, r), (IntType, IntType)),
 		      BinaryOp("-", (l, r) => Minus(l, r), (IntType, IntType)),
 		      BinaryOp("*", (l, r) => Times(l, r), (IntType, IntType)),
@@ -587,6 +664,9 @@ private object Controls {
     override def toString: String = "iteration"
   }
 
+  /**
+   * Skips the given trace, asking the user if we should abort/restart and save/discard.
+   */
   def skipTrace(gui: SynthesisGUI, queryType: pbd.Controller.QueryType) {
     val restartOptions = Array[Object]("Restart", "Abort", "Cancel")
     val restart = JOptionPane.showOptionDialog(gui, "Do you want to restart the same trace or abort and get a new input?", "Restart or abort?", JOptionPane.YES_NO_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE, null, restartOptions, restartOptions(2))

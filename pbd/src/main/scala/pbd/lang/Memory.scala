@@ -3,14 +3,21 @@ package pbd.lang
 import scala.collection.mutable.{ Map => MMap, HashMap => MHashMap, Stack }
 import AST._
 
+/**
+ * Memory of a running program.
+ */
 class Memory(val mem: Stack[MMap[String, Value]]) extends Serializable {
 
   import Memory._
 
+  // Constructors.
   def this(m: MMap[String, Value]) = this(Stack[MMap[String, Value]](m))
   def this(l: TraversableOnce[(String, Value)]) = this(MHashMap.empty ++ l)
   def this() = this(MHashMap[String, Value]())
   
+  /**
+   * Adds a given mapping to memory.
+   */
   def +=(kv: (String, Value)): Memory = {
     mem.find{ _ contains kv._1 } match {
       case Some(m) => m(kv._1) = kv._2
@@ -18,22 +25,53 @@ class Memory(val mem: Stack[MMap[String, Value]]) extends Serializable {
     }
     this
   }
+
+  /**
+   * Gets the value of the given variable.
+   */
   def apply(key: String): Value = mem.find{ _ contains key }.get(key)
+
+  /**
+   * Checks whether the given variable is defined.
+   */
   def contains(key: String): Boolean = mem.find{ _ contains key}.isDefined
+
+  /**
+   * Enters/exits a scope.
+   */
   protected[pbd] def enterScope(): Unit = mem.push(MMap[String, Value]())
   protected[pbd] def exitScope(): Unit = mem.pop
+
+  /**
+   * Gets all of the variables.
+   */
   def keys: Seq[String] = mem flatMap { _.keys }
   
+  /**
+   * Makes a clone of this memory.
+   */
   override def clone: Memory = new Memory(cloneHelper(mem, Stack[MMap[String, Value]]()))
+  
+  /**
+   * Makes this memory a clone of the other memory.
+   */
   def cloneFrom(other: Memory) {
     mem.clear
     cloneHelper(other.mem, mem)
   }
+
+  /**
+   * Gets all objects and arrays.
+   */
   def getObjectsAndArrays(): (MMap[Int, Object], MMap[Int, ArrayValue]) = getObjectsAndArraysHelper(mem)
-  
+
+  /**
+   * Gets the object/array with the given id.
+   */
   def getObject(id: Int): Option[Object] = getObjectsAndArraysHelper(mem)._1.get(id)  // TODO-optimization: We could speed this (and getArray) up by not calling getObjectsAndArrays() and constructing the whole maps.
   def getArray(id: Int): Option[ArrayValue] = getObjectsAndArraysHelper(mem)._2.get(id)
   
+  // Converts the memory.
   def toIterator: Iterator[(String, Value)] = mem.foldLeft(Iterator.apply[(String, Value)]()){ (acc, cur) => acc ++ cur.toIterator }
   def toMap: Map[String, Value] = toIterator.toMap
   
@@ -46,6 +84,9 @@ class Memory(val mem: Stack[MMap[String, Value]]) extends Serializable {
 
 object Memory {
 
+  /**
+   * Clone the given oldMemory into the given newMemory.
+   */
   private def cloneHelper(oldMemory: Stack[MMap[String, Value]], newMemory: Stack[MMap[String, Value]]): Stack[MMap[String, Value]] = {
     val (objects, arrays) = getObjectsAndArraysHelper(oldMemory)
     val clonedObjects = MHashMap.empty ++ (objects mapValues { o => Object(o.id, o.typ, new MHashMap[String, Value]) })  // Note that this needs to be a mutable map not an immutable map or updates to its fields do not stick
@@ -61,6 +102,9 @@ object Memory {
     newMemory
   }
 
+  /**
+   * Gets the objects and arrays of a given memory.
+   */
   private def getObjectsAndArraysHelper(mem: Stack[MMap[String, Value]]): (MMap[Int, Object], MMap[Int, ArrayValue]) = {
     val objects = new MHashMap[Int, Object]
     val arrays = new MHashMap[Int, ArrayValue]

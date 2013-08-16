@@ -4,6 +4,8 @@ object AST {
 
   import scala.collection.mutable.{ Map => MMap }
 
+  /* The type hierarchy. */
+
   sealed trait Type
   sealed trait PrimitiveType extends Type
   case object ErrorType extends Type
@@ -16,6 +18,8 @@ object AST {
   //We use name based typing, not structural
   case class ObjectType(name: String) extends HeapType
   case object GenericType extends Type
+
+  /* The value hierarchy. */
 
   trait Result
   trait Value extends Expr with Result
@@ -40,6 +44,8 @@ object AST {
     override def toString: String = typ + "(" + id.toString + ")"  // Needed so toString of circular objects doesn't infinite loop.
   }
   case object Null extends HeapValue
+
+  /* The expression hierarchy. */
 
   sealed trait Expr extends Action
   sealed trait LVal extends Expr
@@ -71,8 +77,13 @@ object AST {
   case class Times(lhs: Expr, rhs: Expr) extends Arithmetic
   case class Div(lhs: Expr, rhs: Expr) extends Arithmetic
 
+  /* The action hierarchy. */
+
   sealed trait Action extends Stmt
   case class Conditional(condition: Expr, body: List[Action]) extends Action
+  case class Iterate(iterations: List[(Action, List[Action])]) extends Action
+
+  /* Holes. */
 
   sealed trait Hole
   sealed trait EvidenceHole extends Hole
@@ -87,23 +98,25 @@ object AST {
   case class UnseenExpr() extends Expr with Unseen
   case class UnseenStmt() extends Action with Unseen
 
+  /* The statement hierarchy. */
+
   sealed trait Stmt
   case class Assign(lhs: LVal, rhs: Expr) extends Action
   case class If(condition: Expr, thenBranch: List[Stmt], elseIfPaths: List[(Expr, List[Stmt])], elseBranch: List[Stmt]) extends Stmt
   case class Assume(condition: Expr) extends Action
   case class Assert(condition: Expr) extends Action
   case class Loop(condition: Stmt, body: List[Stmt]) extends Stmt
-  case class Iterate(iterations: List[(Action, List[Action])]) extends Action
   case object Break extends Action
   case class Println(s: StringConstant) extends Action
+  case class UnorderedStmts(s: List[Stmt]) extends Action
+  case class Snapshot(memory: Memory) extends Action
+
+  /* Literals. */
 
   sealed trait TLiteral[T <: Action] { val l: T }
   sealed trait TLiteralExpr[T <: Expr] extends TLiteral[Expr] { val l: T }
   case class LiteralAction(l: Action) extends Action with TLiteral[Action]
   case class LiteralExpr(l: Expr) extends Expr with TLiteralExpr[Expr]
-
-  case class UnorderedStmts(s: List[Stmt]) extends Action
-  case class Snapshot(memory: Memory) extends Action
 
   sealed trait Synthetic
   case class UnknownJoinIf(known: If, unknown: List[Stmt]) extends Stmt with Synthetic

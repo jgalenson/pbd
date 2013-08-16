@@ -11,9 +11,14 @@ import scala.collection.immutable.Map
 import scala.collection.{ Map => TMap }
 import Utils._
 
+/**
+ * The Controller is responsible for letting the synthesizer and the gui communicate.
+ */
 protected[pbd] class Controller(private val synthesisCreator: Controller => Synthesis, private val helperFunctions: Map[String, Program], private val objectTypes: Map[String, List[(String, Type)]], private val objectComparators: Map[String, (Value, Value) => Int], private val fieldLayouts: Map[String, List[List[String]]], private val objectLayouts: Map[String, ObjectLayout], @transient private var options: Options) extends Serializable {
 
+  // The last state we displayed.
   @transient private var lastState: Option[(Memory, List[Stmt], Option[Stmt])] = None
+  // Variables used for blocking communication between the synthesizer and the gui.
   private val actionsVar = new SyncVar[ActionsInfo]
   private val stmtTraceVar = new SyncVar[StmtTraceIntermediateInfo]
   private val exprTraceVar = new SyncVar[ExprTraceIntermediateInfo]
@@ -25,17 +30,31 @@ protected[pbd] class Controller(private val synthesisCreator: Controller => Synt
   def synthesize(input: List[(String, Value)]): Program = synthesizer.synthesize(input)
   def synthesize(trace: Trace): Program = synthesizer.synthesize(trace)
 
+  /**
+   * Updates the GUI to display the current memory and code.
+   */
   def updateDisplay(memory: Memory, stmts: List[Stmt], curStmt: Option[Stmt], layoutObjs: Boolean = true, breakpoints: List[Breakpoint] = Nil, failingStmt: Option[Stmt] = None) = {
     lastState = Some((memory, stmts, curStmt))
     invokeAndWait{ gui.updateDisplay(Some(memory.clone), stmts, curStmt, layoutObjs, breakpoints, failingStmt) }  // Important: we clone the memory since the GUI operates on its data directly.
   }
+
+  /**
+   * Clears the display.
+   */
   def clearDisplay(stmts: List[Stmt]) = invokeAndWait{ gui.updateDisplay(None, stmts, None, false, Nil, None) }
 
+  /**
+   * Shows the user a list of possible actions and lets him choose some.
+   * Note that the user can also do other things through the controls.
+   */ 
   def getActions(possibilities: List[Action], amFixing: Boolean): ActionsInfo = {
     invokeAndWait{ gui.getActions(possibilities, amFixing) }
     actionsVar.take
   }
 
+  /**
+   * Gets statement(s) from the user.
+   */ 
   def getStmtTrace(memory: Memory, canFix: Boolean, isConditional: Boolean = false): StmtTraceFinalInfo = {
     invokeLater{ gui.getStmtTrace(memory, canFix, isConditional) }
     stmtTraceVar.take match {
@@ -47,6 +66,10 @@ protected[pbd] class Controller(private val synthesisCreator: Controller => Synt
       case e: EndTrace => e
     }
   }
+
+  /*
+   * Gets an expression from the user.
+   */
   def getExprTrace(memory: Memory, canFix: Boolean): ExprTraceFinalInfo = {
     invokeLater{ gui.getExprTrace(canFix) }
     exprTraceVar.take match {
@@ -58,6 +81,10 @@ protected[pbd] class Controller(private val synthesisCreator: Controller => Synt
     }
   }
 
+  /*
+   * Shows the user the given memory diff and lets him walk through it or
+   * fix the program, e.g., by adding a conditional.
+   */
   def doFixStep(diffInfo: Option[(Memory, Stmt, Value)], amInConditional: Boolean = false, canDiverge: Boolean = true): FixInfo = {
     val newDiffInfo = diffInfo map { case (mem, stmt, value) => (mem, (stmt, value) match {
       case (_: Expr, p: Primitive) => Some(p)  // Let's only show the value if the current statement is an expression that returns a primitive.  We don't want, e.g., assign results or objects.
@@ -66,8 +93,12 @@ protected[pbd] class Controller(private val synthesisCreator: Controller => Synt
     invokeLater{ gui.doFixStep(newDiffInfo, amInConditional, canDiverge) }
     getFixInfo()
   }
-  // TODO/FIXME: Use manually-executed actionsAfterJoin to prune corresponding PossibilityHoles, if any (test on sort: I join on j:=j+1, which should prune j:=min+1).
-  // Returns a function that, given the actions executed since the conditional ended, finds the legal join points.
+
+  /**
+   * Gets the user to demonstrate a condition and then the new body of the conditional.
+   * Returns a function that, given the actions executed since the conditional ended, finds the legal join points.
+   * TODO/FIXME: Use manually-executed actionsAfterJoin to prune corresponding PossibilityHoles, if any (test on sort: I join on j:=j+1, which should prune j:=min+1).
+   */
   def insertConditionalAtPoint(): ConditionalInfo = {
     import pbd.lang.{ Executor, Printer }
     import pbd.lang.AST.{ If, UnseenExpr, UnseenStmt, UnknownJoinIf, BooleanConstant }
@@ -108,7 +139,9 @@ protected[pbd] class Controller(private val synthesisCreator: Controller => Synt
       }
     })
   }
-  // Called in the case where in an earlier attempt to find a join we had no legal places, so we aborted and tried the other branch.  We've seen that one before, though, and followers is a superset of what it can contain.
+  /**
+   * Called in the case where in an earlier attempt to find a join we had no legal places, so we aborted and tried the other branch.  We've seen that one before, though, and followers is a superset of what it can contain.
+   */
   def insertConditionalAtPoint(code: List[Stmt], uif: pbd.lang.AST.UnknownJoinIf, followers: List[Stmt]): JoinInfo = {
     import pbd.lang.{ Executor, Printer }
     import pbd.lang.AST.{ If, UnseenExpr, UnseenStmt, PossibilitiesHole, UnknownJoinIf, Not }
@@ -147,12 +180,16 @@ protected[pbd] class Controller(private val synthesisCreator: Controller => Synt
   def getFixInfo(): FixInfo = fixInfo.take
   def hideFixingGui() = invokeLater{ gui.hideFixingGui() }
 
+  // Communicate bween the synthesizer and the gui.
   def setActions(actions: ActionsInfo) = actionsVar put actions
   def setStmtTrace(trace: StmtTraceIntermediateInfo) = stmtTraceVar put trace
   def setExprTrace(expr: ExprTraceIntermediateInfo) = exprTraceVar put expr
   def setFixInfo(info: FixInfo) = fixInfo put info
 
-  // TODO/FIXME: I should do pruning here after genProgramAndFillHoles but before executeWithHelpFromUser.  That might reduce the num of questions I ask for later iterations.  But for that, I need to have access to the entire program up to this point.  Canvas' Tracer has the current unseen part, but I don't have everything before it.  Once I modify executeWithHelpFromUser to keep the whole program, I can have that.  Note that I can also add pruning to places inside executeWithHelpFromUser, perhaps after I get an unseen statement.
+  /**
+   * Synthesizes a loop given its first iteration and then walks through it.
+   * TODO/FIXME: I should do pruning here after genProgramAndFillHoles but before executeWithHelpFromUser.  That might reduce the num of questions I ask for later iterations.  But for that, I need to have access to the entire program up to this point.  Canvas' Tracer has the current unseen part, but I don't have everything before it.  Once I modify executeWithHelpFromUser to keep the whole program, I can have that.  Note that I can also add pruning to places inside executeWithHelpFromUser, perhaps after I get an unseen statement.
+   */
   def synthesizeLoop(initialMemory: Memory, firstIteration: Iterate, loops: TMap[Iterate, Loop], curMemory: Memory): LoopFinalInfo = {
     val stmts = synthesizer.genProgramAndFillHoles(initialMemory, List(firstIteration), true, loops)
     firstIteration match {
@@ -166,6 +203,9 @@ protected[pbd] class Controller(private val synthesisCreator: Controller => Synt
     }
   }
 
+  /**
+   * Skips the current trace.
+   */
   def skipTrace(queryType: QueryType, sameInput: Boolean, saveChanges: Boolean) {
     clearScreen()
     val ender = EndTrace(sameInput, saveChanges)
@@ -177,14 +217,22 @@ protected[pbd] class Controller(private val synthesisCreator: Controller => Synt
     }
   }
 
+  /**
+   * Add/remove breakpoints.
+   */
   def addBreakpoint(breakpoint: Breakpoint) = synthesizer.addBreakpoint(breakpoint)
-
   def removeBreakpoint(line: Stmt) = synthesizer.removeBreakpoint(line)
 
+  /**
+   * Display a graphical message to the suer.
+   */
   def displayMessage(msg: String) = gui.displayMessage(msg)
 
   def getOptions(): Options = options
 
+  /**
+   * Clear the screen.
+   */
   def clearScreen() = invokeLater { gui.clear() }
 
   def cleanup() = gui.dispose()

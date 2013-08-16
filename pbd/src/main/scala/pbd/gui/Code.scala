@@ -4,6 +4,9 @@ import java.awt.Color
 import javax.swing.{ JList, DefaultListModel, DefaultListCellRenderer, ListCellRenderer }
 import Code._
 
+/**
+ * Displays the code.
+ */
 protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, private val model: DefaultListModel[ListData]) extends JList[ListData](model) {
 
   import pbd.lang.AST.{ Stmt, Value, If }
@@ -24,11 +27,15 @@ protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, priva
 
   def this(synthesisGUI: SynthesisGUI) = this(synthesisGUI, new DefaultListModel)
 
+  /**
+   * Initializes the code pane.
+   */
   private def init() {
+    // Renders elements as HTML so they have color.
     setCellRenderer(new ListCellRenderer[ListData] {
       import java.awt.Component
       import javax.swing._
-      val realRenderer = new DefaultListCellRenderer()
+      val realRenderer = new DefaultListCellRenderer()  // Work around Scala weirdness.
       def getListCellRendererComponent(list: JList[_ <: ListData], value: ListData, index: Int, isSelected: Boolean, cellHasFocus: Boolean): Component = {
 	val comp = realRenderer.asInstanceOf[ListCellRenderer[ListData]].getListCellRendererComponent(list, value, index, isSelected, cellHasFocus)
 	realRenderer.setText("<html>" + value.displayStr + "</html>")
@@ -36,6 +43,7 @@ protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, priva
       }
     })
 
+    // Adds a right-click menu to add/remove breakpoints.
     import java.awt.event.{ MouseAdapter, MouseEvent }
     addMouseListener(new MouseAdapter {
       import javax.swing.{ JPopupMenu, JMenuItem }
@@ -90,6 +98,9 @@ protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, priva
   }
   init()
 
+  /**
+   * Gets the index at the given point, if any.
+   */
   private def getIndexAtPoint(point: java.awt.Point): Option[Int] = {
     val index = locationToIndex(point)
     if (getCellBounds(index, index).contains(point))  // Without this anything below the last element will get the last element.
@@ -98,8 +109,15 @@ protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, priva
       None
   }
 
+  /**
+   * Gets the tooltip text we should show for the given event, if any.
+   */
   override def getToolTipText(e: java.awt.event.MouseEvent): String = getIndexAtPoint(e.getPoint()).map{ i => elems(i).tooltipStr.getOrElse(null) }.getOrElse(null)
 
+  /**
+   * Shows the given code.
+   * replaceStmts, if defined, should replace the curStmt.
+   */
   def setCode(stmts: List[Stmt], curStmt: Option[Stmt], replacementStmts: Option[Iterable[Stmt]] = None, breakpoints: List[Breakpoint] = Nil, failingStmt: Option[Stmt] = None) = {
     this.stmts = stmts
     this.curStmt = curStmt
@@ -107,7 +125,6 @@ protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, priva
     this.breakpoints = breakpoints
     showCode(replacementStmts)
   }
-
   // TODO: This code is ugly.  Clean it up and combine similar parts.
   def showCode(replacementStmts: Option[Iterable[Stmt]]) = {
     import pbd.lang.AST.{ Conditional, Iterate, If, Loop, UnorderedStmts, Action, Expr, Unseen, PossibilitiesHole, UnknownJoinIf }
@@ -203,16 +220,22 @@ protected[gui] class Code private (private val synthesisGUI: SynthesisGUI, priva
     elems foreach { x => model.addElement(x) }
   }
 
+  /**
+   * Gets the current code and teh current statement.
+   */
   def getCode(): (List[Stmt], Option[Stmt]) = (stmts, curStmt)
 
+  /**
+   * Does some HTML quoting.
+   */
   private def sanitizeHTML(s: String) = s.replaceAll(" ", "&nbsp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
 
 }
 
 private object Code {
 
-  val CUR_COLOR = "blue"
-  val FAILING_COLOR = "red"
+  val CUR_COLOR = "blue"  // Color for the current statement.
+  val FAILING_COLOR = "red"  // Color for a statement on which we crash.
 
   import pbd.lang.AST.Stmt
 

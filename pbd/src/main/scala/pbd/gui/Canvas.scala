@@ -12,6 +12,9 @@ import pbd.Controller._
 import scala.collection.{ Map => TMap }
 
 // TODO: Improve layout.  Maybe remove code from createShape and instead add a new function that movies things that have been created (and call it after creating all of them).
+/**
+ * Class that displays and allows manipulation of memory.
+ */
 protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFunctions: IMap[String, Program], private val objectTypes: IMap[String, List[(String, Type)]], private val objectComparators: IMap[String, (Value, Value) => Int], private val fieldLayouts: IMap[String, List[List[String]]], private val objectLayouts: IMap[String, ObjectLayout]) extends JPanel {
 
   import pbd.lang.AST.{ Action, ArrayValue, IntConstant, Null, Object, Primitive, Value, Assign, Var => ASTVar, Call, HeapValue, Expr, Stmt, Iterate, Loop, BooleanConstant, UnorderedStmts }
@@ -19,10 +22,18 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
   import java.awt.event.{ MouseAdapter, MouseEvent, MouseMotionAdapter, MouseWheelListener, MouseWheelEvent, KeyAdapter, KeyEvent }
   import scala.annotation.tailrec
 
+  // The shapes we are currently displaying.
   private val variables = Map.empty[String, Var]
   private val objects = Map.empty[Int, Obj]
   private val arrays = Map.empty[Int, Arr]
   private val nulls = ListBuffer.empty[NullShape]
+
+  // Maps to let us find child shapes.
+  private val fields = Map.empty[Int, Map[String, Field]]
+  private val arrElems = Map.empty[Int, List[ArrAccess]]
+  private val arrLens = Map.empty[Int, ArrLen]
+
+  // Iterators over certain types of shapes.
   private def toplevelShapes = variables.valuesIterator ++ objects.valuesIterator ++ arrays.valuesIterator ++ newDiffShapes.toIterator ++ nulls.toIterator ++ modeShapes ++ (held match {
     case Mutation(s) => Iterator.single(s)
     case _ => Iterator.empty
@@ -46,9 +57,6 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     case Object(id, _, _) => objects(id)
     case Null => nulls.head
   }
-  private val fields = Map.empty[Int, Map[String, Field]]
-  private val arrElems = Map.empty[Int, List[ArrAccess]]
-  private val arrLens = Map.empty[Int, ArrLen]
   private def getChildren(shape: Shape): Iterable[Shape] = shape match {
     case Obj(Object(id, _, _), _, _, _, _) => fields(id).values
     case Arr(ArrayValue(id, _, _), _, _, _, _) => arrLens(id) :: arrElems(id)
@@ -60,22 +68,24 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     case _ => Set.empty
   }
 
-  // IVars for tracking what mode we're in (e.g. just observing memory, answering a query, etc).
+  // Classes for tracking what mode we're in (e.g. just observing memory, answering a query, etc).
   private trait InteractionMode
-  private case object Observer extends InteractionMode
-  private abstract class QueryMode extends InteractionMode
+  private case object Observer extends InteractionMode  // In observer mode we're read-only.
+  private abstract class QueryMode extends InteractionMode  // In query mode we're asking the user a disambiguation query.
   private case class SelectQuery(possibilitiesSet: ISet[Shape], possibilitiesMap: IMap[Shape, List[Action]], newShapes: ISet[Shape]) extends QueryMode
   private case class AssignQuery(possibilities: IMap[Shape, IMap[Shape, List[Action]]], lefts: ISet[Shape], rights: ISet[Shape], rightMap: IMap[Shape, ISet[Shape]], newShapes: ISet[Shape], newArrows: IMap[Arrow, (Shape, ISet[Shape])]) extends QueryMode
-  private abstract class Trace extends InteractionMode { val newShapes: Set[Shape]; val literalShapes: Set[Shape] }
+  private abstract class Trace extends InteractionMode { val newShapes: Set[Shape]; val literalShapes: Set[Shape] }  // In trace mode we're getting expr/stmt(s) from the user.
   private case class StmtTrace(actions: ListBuffer[Action], var curBlocks: List[TraceBlock], loops: Map[Iterate, Loop], newShapes: Set[Shape], var initMem: Memory, joinFinder: Option[(List[Action] => Option[List[Stmt]])], literalShapes: Set[Shape]) extends Trace  // curBlocks has inner blocks at the beginning, initMem is  clone of memory after finishing the previous statement.
   private case class ExprTrace(newShapes: Set[Shape], literalShapes: Set[Shape]) extends Trace  // Currently only for boolean expressions: see comment in doExpr.  This would be easy to change if necessary (probably just add type as ivar).
-  private var mode: InteractionMode = Observer
   private abstract class TraceBlock
   private case class UnorderedTrace(startMem: Memory, s: ListBuffer[Action]) extends TraceBlock
   private case object SnapshotTrace extends TraceBlock
   private case class ConditionalTrace(var condition: Option[Expr], body: ListBuffer[Action]) extends TraceBlock
   private case class LoopTrace(var condition: Option[Action], body: ListBuffer[Action], initialMemory: Memory) extends TraceBlock
+  // The current mode
+  private var mode: InteractionMode = Observer
 
+  // Shapes used when diffing memory.
   private val newDiffShapes = Set.empty[Shape]
   private val diffShapes = Set.empty[Shape]
   private val diffArrows = Set.empty[Arrow]
@@ -83,6 +93,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
   private val oldDiffArrows = Set.empty[Arrow]
   private val diffOriginalVals = Set.empty[() => Unit]
 
+  // Utility IVars
   private val printer = new Printer(Map[String, Value => String](), true)
   private val executor = new Executor(helperFunctions, printer)
   private val typer = new Typer(helperFunctions, objectTypes)
@@ -131,6 +142,9 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
   // Initialize the Canvas and set an iVar needed for tooltips.
   private val (tooltipListener, callHoverListener) = setup()
 
+  /**
+   * Initializes the canvas.
+   */
   private def setup(): (MouseMotionAdapter, MouseMotionAdapter) = {
     setBackground(Color.WHITE)
 
@@ -141,6 +155,8 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
       mover(arrow)
       smartRepaintBounds(List(initialBounds, boundsOfArrow(arrow)))
     }
+
+    // Gets the bounds of a shape.
     def getBounds(held: HeldShape): List[Rectangle] = (held, mode) match {
       case (Mutation(heldCopy @ Shadow(heldOrig, _, _)), AssignQuery(possibilitiesMap, lefts, rights, rightMap, _, newArrows)) =>
 	val invalidLefts = lefts -- rightMap(heldOrig)  // These change from red to black (things that cannot be assigned this).
@@ -155,6 +171,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	allShapes.filter{ shape => canReceive(source, shape, mode) }.map(boundsOfShape)  // I deal with repainting the arrow's bounds in the caller.
       case _ => Nil
     }
+
     // Repaint parts of the screen if necessary when the user presses or releases the mouse.  Called with the held value (i.e. the shape if the mouse was released).
     def changeHeld(newHeld: HeldShape, x: Int, y: Int, oldBounds: Option[List[Rectangle]] = None) {
       if (newHeld.isSomething()) {
@@ -167,14 +184,18 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
       held = newHeld
       smartRepaintBounds(getBounds(oldHeld) ++ getBounds(newHeld) ++ oldBounds.getOrElse(Nil))
     }
+
     def removeTooltip(t: Tooltip) {
       tooltip = None
       smartRepaint(boundsOfShape(t))
     }
+
     def findLegalInnerShape(x: Int, y: Int, legalShapes: ISet[Shape]): Option[Shape] = findInnerShape(x, y, legalShapes) match {
       case Some(c: Child[_, _]) => Some(if (legalShapes contains c) c else c.parent)
       case s => s
     }
+
+    // Shows tooltips when the mouse hovers over something that should have one.
     // TODO-low: Use Swing tooltips.  See JComponent.getToolTip{Location,Text} versions that take mouseEvents.  Canvas can implement those to return the location/string, and this can simply set them into an ivar.  Unfortunately, those currently seem to fail, probably due to xmonad/Java not liking each other.
     val tooltipListener = new MouseMotionAdapter() {
       override def mouseMoved(e: MouseEvent) {
@@ -221,6 +242,8 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
       case _: SelectQuery | _: AssignQuery => addMouseMotionListener(tooltipListener)
       case _ =>
     }
+
+    // Deals with hovering over a call, which needs to make new arrows appear to shows its args.
     def hoverOverCall(call: FuncCall) {
       unhoverCall()
       hoveringCall = Some(call)
@@ -239,16 +262,22 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	}
       }
     }
+
+    // Selects the given possibilities.
     def possibilitySelected(actions: List[Action]) {
       gui.setActions(Actions(actions))
       leaveQueryMode()
     }
+
+    // Reset an arrow to point to its destination (if we were holding it before).
     def snapBackArrow(arrow: Arrow, x: Int, y: Int) = {
       if (arrow.target.isEmpty)
 	moveArrowAndRepaint(arrow, a => { val src = arrowSources(a); a.srcX = src.x; a.srcY = src.y; a.dstX = src.x + src.width; a.dstY = src.y + src.height })  // Reset a null arrow.
       else
 	moveArrowAndRepaint(arrow, arrow => { arrow.dstX += startX - x; arrow.dstY += startY - y })  // Snap back the arrow.
     }
+
+    // Cycle the currently held arrow plus or minus the given number of notches.  This can be used to switch between multiple arrows that point to the same location.
     // TODO: Ideally I would probably use a key listener rather than mouse wheel.
     def switchHeldArrow(notches: Int, x: Int, y: Int) {
       val allArrows = findArrows(lastX, lastY)
@@ -263,12 +292,18 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	changeHeld(FlyingArrow(newArrow), x, y)
       }
     }
+
+    // Lets users cycle between arrows by scrolling the mouse wheel.
     val mouseArrowSwitcherListener = new MouseWheelListener() {
       override def mouseWheelMoved(e: MouseWheelEvent) {
 	switchHeldArrow(e.getWheelRotation(), e.getX(), e.getY())
       }
     }
+
+    // Handles mouse clicks.
     addMouseListener(new MouseAdapter() {
+
+      // When the user presses the mouse, prepare to drag it.
       override def mousePressed(e: MouseEvent) {
 	if (e.getButton() != MouseEvent.BUTTON1)
 	  return
@@ -302,6 +337,8 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	tooltip foreach { t => removeTooltip(t) }
 	removeMouseMotionListener(tooltipListener)
       }
+
+      // When the user releases the mouse, we can do an action or reset it to its original position.
       override def mouseReleased(e: MouseEvent) {
 	if (e.getButton() != MouseEvent.BUTTON1)
 	  return
@@ -348,6 +385,8 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	changeHeld(NoHeld, x, y, Some(origBounds))
 	addTooltipListener()
       }
+
+      // When the user clicks, we can do an action.
       override def mouseClicked(e: MouseEvent) {
 	if (e.getButton() != MouseEvent.BUTTON1) {
 	  if (e.getButton() == 7)
@@ -382,6 +421,8 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	}
       }
     })
+
+    // Drags the held shape.
     addMouseMotionListener(new MouseMotionAdapter() {
       override def mouseDragged(e: MouseEvent) {
 	if (held.isSomething()) {
@@ -396,6 +437,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     (tooltipListener, callHoverListener)
   }
 
+  // When something moves, our smart repaint tries to paint only the parts of the screen that need to be updated instead of the whole thing.
   private def smartRepaint(bounds: Rectangle) {
     bounds.grow(1, 1)
     repaint(bounds)
@@ -411,6 +453,8 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     val finalBounds = if (getSecondBounds) getAllBounds(shape) else Nil
     smartRepaintBounds(initialBounds ++ finalBounds)
   }
+
+  // Gets the bounds of an arrow.
   private def boundsOfArrow(a: Arrow): Rectangle = {
     def boundsOfArrowToCoords(srcX: Int, srcY: Int, srcW: Int, srcH: Int, dstX: Int, dstY: Int, dstW: Int, dstH: Int): Rectangle = {
       val left = math.min(srcX, dstX)
@@ -421,6 +465,8 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     }
     boundsOfArrowToCoords(a.srcX, a.srcY, 0, 0, a.dstX, a.dstY, 0, 0)
   }
+
+  // Gets all the bounds that need to be updated when the given shape changes (e.g., its arrows).
   private def getAllBounds(shape: Shape): Iterable[Rectangle] = List(boundsOfShape(shape)) ++ getArrowsTo(shape).map(boundsOfArrow) ++ (shape match {
     case src @ Pointer(_, a, _, _, _, _) => List(boundsOfArrow(a))
     case shape @ Arr(ArrayValue(id, _, _), _, _, _, _) => (arrLens(id) :: arrElems(id)).flatMap{ f => getAllBounds(f.child) }  // We check the children since calls might point to them.
@@ -429,6 +475,8 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     case c: Child[_, _] => getAllBounds(c.parent)
     case _ => Nil
   }) ++ getArrowsFrom(shape).map(boundsOfArrow)
+
+  // Checks whether the given rhs shape can be dragged on top of the given lhs shape (e.g., assignment or call).
   private def canReceive(lhs: Shape, rhs: Shape, mode: Trace): Boolean = {
     def isUnfinishedCall(s: Shape) = s match {
       case FuncCall(_, _, None, _, _, _, _, _, _, _) => true
@@ -443,11 +491,15 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
       case _: ExprTrace => shapesCanReceive(lhs, rhs, typer, true)
     }
   }
+
+  // Stops hovering over a call and showing its information.
   private def unhoverCall() = hoveringCall foreach { call => mutateAndDoubleRepaint(call, {
     hoveringCall = None
     call.isHovering = false
     call.getAllArrows().foreach{ a => a.isFlying = false }
   }) }
+
+  // Does the given action.  This can involve repainting, changing memory, and updating/changing the mode.
   private def doTraceAction(a: Action, mode: Trace) = {
     def removeAllNewShapes() {
       mode.newShapes.foreach{ _ match {
@@ -481,6 +533,8 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
       case _ => throw new IllegalArgumentException
     }
   }
+
+  // Does the given expression if it is legal.
   private def doExpr(mode: Trace, shape: Shape) {
     val isLegalExpr = mode match {
       case mode: StmtTrace => mode.curBlocks match {
@@ -493,6 +547,8 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     if (isLegalExpr)
       doTraceAction(shapeToExpr(shape, mode.literalShapes), mode)
   }
+
+  // Does the given assignment.  Note that this changes memory.
   private def doAssignment(mode: StmtTrace, lhs: Shape, rhs: Shape) {
     lhs match {
       case v: Var if !variables.contains(v.name) => variables += v.name -> v
@@ -501,6 +557,8 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     doTraceAction(assign(lhs, rhs, pointees, mode.literalShapes), mode)
     updateWidthAndHeight(lhs, true, getGraphics())
   }
+
+  // Does a call, which might change memory.
   private def doCall(call: FuncCall, x: Int, y: Int, w: Int, h: Int) {
     val (result, newMem) = executor.execute(makeMemory(), shapeToExpr(call, modeLiteralShapes()))
     call.result = Some(result)
@@ -510,6 +568,8 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     updateShapes(getGraphics(), newMem, resultHeapShape.map{ shape => (shape, result) })
     repaint()
   }
+
+  // Adds/removes the given action to the mode.
   // We do not pass curAction by need, even though we don't always need it, because computing it can have side effects that we need (e.g. assign).
   private def addActionToTraceBlock(curAction: Action, mode: StmtTrace) = mode.curBlocks match {
     case Nil => mode.actions += curAction
@@ -548,6 +608,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
       case LoopTrace(Some(_), body, _) => body.remove(body.size - 1)
     }
   }
+
   // Generates the AST Action from the given block.  If extraAction is defined, use it as the last action in this block.
   private def blockToAction(block: TraceBlock, extraAction: Option[Action]): Action = {
     import pbd.lang.AST.{ Snapshot, Conditional, UnseenExpr, UnseenStmt }
@@ -560,10 +621,15 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
       case LoopTrace(Some(s), b, _) => Iterate(List((s, b.toList ++ extraAction.toList)))
     }
   }
+
+  // Gets the actions that are in the current block.
   // If markCurStmt is true, we put an UnseenExpr as the current/final statement.
   private def getTraceModeActions(mode: StmtTrace, markCurStmt: Boolean): List[Action] = mode.actions.toList ++ mode.curBlocks.foldLeft(if (markCurStmt) Some(pbd.lang.AST.UnseenExpr(): Action) else None){ (acc, cur) => Some(blockToAction(cur, acc)) }.toList
+
+  // Displays the current actions in the code pane.
   private def setGuiCurrentStmts(mode: StmtTrace) = gui.setCurrentStmts(getTraceModeActions(mode, true))
 
+  // Paints all the shapes.
   override def paintComponent(g: Graphics) {
     super.paintComponent(g)
     val g2d = g.asInstanceOf[Graphics2D]
@@ -607,6 +673,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
       moveShape(n, newX - n.x, newY - n.y, getChildren, getArrowsTo, getArrowsFrom)
     } }
   }
+  // Remove shapes/arrows.
   def removeShape(shape: Shape): Unit = shape match {
     case Prim(name, _, _, _, _, _) => variables.remove(name)
     case p @ Pointer(name, a: Arrow, _, _, _, _) =>
@@ -701,7 +768,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     useUserFieldLayout(oShape, g)
     oShape
   }
-  // Update existing shapes.
+  // Updates existing shapes, since e.g.,  they might point to different things.
   private def updateShapes(g: Graphics, memory: Memory, extraShapes: Iterable[(Shape, Value)]): Unit = {
     val updated = Set.empty[Shape]
     def updateShape(shape: Shape, value: Value, updateWH: Boolean = true): Unit = {
@@ -777,6 +844,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
       }}
     }}
   }
+
   /**
    * Lays out an object.  See the comment about the ObjectLayout type in Controller.scala.
    * We re-layout objects that were illegally placed.
@@ -864,6 +932,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     doLayouts(layableObjs, ISet.empty, ISet.empty)
   }
 
+  // Updates the width and height of the given shape.  This should be called after a shape might have changed so we can resize it if necessary.
   private def updateWidthAndHeight(shape: Shape, updateParent: Boolean, g: Graphics) {
     def updateWidthAndHeightHelper(shape: Shape, changeXY: Boolean) {
       def updateWH(w: Int, h: Int) {
@@ -921,7 +990,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
   }
   
   /**
-   * Try find a place to layout a shape with the given width and height
+   * Tries find a place to layout a shape with the given width and height
    * starting at the given default location.
    * For now, this algorithm simply moves it left or down until it finds an open spot.
    */
@@ -964,6 +1033,8 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
      randomPlacer() orElse
      (throw new java.lang.RuntimeException("I cannot place a shape."))).get
   }
+
+  // Find shapes and arrows.
   private def findShapesNear(x: Int, y: Int, w: Int, h: Int, shapes: Iterable[Shape] = toplevelShapes.toList): List[Shape] = findShapes(new Rectangle(x - OBJECT_SPACING / 2, y - OBJECT_SPACING / 2, w + OBJECT_SPACING, h + OBJECT_SPACING), shapes)
   private def findShapes(s: Shape): List[Shape] = findShapes(boundsOfShape(s))
   private def findShapes(r: Rectangle, shapes: Iterable[Shape] = toplevelShapes.toList): List[Shape] = shapes.filter{ s => boundsOfShape(s).intersects(r) }.toList
@@ -1013,9 +1084,14 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
   }
   private def boundsOfShape(s: Shape): Rectangle = new Rectangle(s.x, s.y, s.width, s.height)
 
+  // Checks whether the given point is offscreen, i.e., cannot be seen.
   private def isOffscreen(x: Int, y: Int, w: Int, h: Int): Boolean = x < 0 || x + w > getWidth() || y < 0 || y + h > getHeight()
 
-  // TODO: Sort newly-created shapes so that they always appear in the same order (e.g. so we can't have two questions with the same answers with the orders reversed, e.g. true above false then false above true).
+  /**
+   * Displays the given set of possibilities to the user, who can select one to use.
+   * This can involve creating new shapes and arrows and highlighting shapes and arrows.
+   * TODO: Sort newly-created shapes so that they always appear in the same order (e.g. so we can't have two questions with the same answers with the orders reversed, e.g. true above false then false above true).
+   */
   def setPossibilities(possibilities: List[Action]): Unit = setPossibilities(possibilities, makeMemory(), getGraphics().asInstanceOf[Graphics2D])
   private def setPossibilities(possibilities: List[Action], mem: Memory, g: Graphics2D): Unit = {
     import pbd.lang.AST.{ Expr, ArrayAccess, FieldAccess, ArrayLength, Call, LVal }
@@ -1029,7 +1105,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 	case Field(Pointer(_, Arrow(_, Some(target), _, _, _, _, _), _, _, _, _), _) if !isLHS => target
 	case _ => s
       }
-      // TODO-low: Implement In/To/Until.  Not that I care.
+      // TODO-low: Implement In/To/Until.
       e match {
 	case cur: Primitive =>
 	  val (w, h) = (widthOfVal(cur, g, fieldLayouts), heightOfVal(cur, g, fieldLayouts))
@@ -1143,6 +1219,8 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     addMouseMotionListener(callHoverListener)
     gui.setStatusBarText("Please choose " + iterableToString(possibilities, " or ", (a: Action) => printer.stringOfAction(a)) + ".")
   }
+
+  // Changes from query to observer mode.
   def leaveQueryMode() {
     mode = Observer
     removeMouseMotionListener(tooltipListener)
@@ -1150,6 +1228,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     gui.emptyStatusBarText()
   }
 
+  // Makes arrows from the call shape to its arrows and results.
   private def makeCallArrows(argShapes: List[Shape], result: Value, x: Int, y: Int, w: Int, h: Int): (List[Arrow], Option[Arrow]) = {
     val argArrows = argShapes.zipWithIndex.map{ case (s, i) => makeCallArrow(x, y, w, argShapes.size, Some(s), i, pointees) }
     val resultArrow = result match {
@@ -1159,6 +1238,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     (argArrows, resultArrow)
   }
 
+  // Colors shapes and arrows,
   private val colorer: PartialFunction[Shape, Color] = shape => { (held, mode) match {
     case (Mutation(heldCopy @ Shadow(heldOrig, _, _)), _) if shape.eq(heldOrig) || shape.eq(heldCopy) => SHADOW_COLOR
     case (_, SelectQuery(possibilities, _, _)) if possibilities.contains(shape) => POSSIBILITY_COLOR
@@ -1176,35 +1256,45 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     case (a: Arrow, AssignQuery(_, _, _, _, _, arrows)) if arrows.contains(a) => POSSIBILITY_COLOR
   }
 
+  // Lets the user enter a trace of statements.
   def startStmtTraceMode(memory: Memory) {
     mode = StmtTrace(ListBuffer.empty, Nil, Map.empty, Set.empty, memory.clone, None, Set.empty)
     gui.setStatusBarText("Please give a trace.")
     addMouseMotionListener(callHoverListener)
   }
+
+  // Lets the user enter a single expression.
   def startExprTraceMode() {
     mode = ExprTrace(Set.empty, Set.empty)
     gui.setStatusBarText("Please give an expression.")
     addMouseMotionListener(callHoverListener)
   }
 
+  // Returns the statements the user demonstrated to the synthesizer.
   def finishStmtTraceMode(): (List[Action], TMap[Iterate, Loop], Memory) = {
     val curMode = mode.asInstanceOf[StmtTrace]
     val actions = getTraceModeActions(curMode, false)
     finishTraceMode()
     (actions, curMode.loops, makeMemory())
   }
+
+  // Returns the expression the suer demonstrated to the synthesizer.
   private def finishExprTraceMode(e: Expr) {
     gui.setTraceExpr(e, makeMemory())
     finishTraceMode()
   }
+
+  // Ends a statement/expression trace mode.
   def finishTraceMode() {
     removeMouseMotionListener(callHoverListener)
     mode = Observer
     gui.emptyStatusBarText()
   }
 
+  // Builds the memory that represents the current state of the GUI.
   def makeMemory(): Memory = new Memory(variables.valuesIterator.map{ v => getBinding(v) })
-
+ 
+  // Adds a shape to the canvas.
   def addPrimVar(name: String, extraShapes: Iterable[Shape] = Nil) = addVar(name, g => {
     val (w, h) = (widthOfVar(name, IntConstant(0), g), heightOfVar(name, IntConstant(0), g))
     val (x, y) = findLocation(OBJECT_SPACING, OBJECT_SPACING, w, h, true, toplevelShapes.toList ++ extraShapes)
@@ -1221,7 +1311,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     val (x, y) = findLocation(OBJECT_SPACING, OBJECT_SPACING, w, h, true, toplevelShapes.toList ++ extraShapes)
     IVal(p, x, y, w, h)
   }
-  def addCall(c: Callable) = addShape{ g => {
+  protected[gui] def addCall(c: Callable) = addShape{ g => {
     val result = c match { case Prog(p) if (p.inputs.isEmpty) => Some(executor.evaluate(makeMemory(), Call(p.name, Nil))) case op: ConcreteOp => Some(executor.evaluate(makeMemory(), op.e)) case _ => None }
     val str = makeCallString(c, Nil, result, printer)
     val (w, h) = (widthOfString(str, g), heightOfString(str, g))
@@ -1242,6 +1332,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     newShape
   }
 
+  // Updates the canvas to reflect the given action.
   // TODO/FIXME: Allow giving possibilities.
   // TODO/FIXME: Here (and in AST and friends) add ++ so I can increment vars more easily and without using a constant 1 that could be a standin.
   // TODO: I currently do exprs by default (see Control.scala).  Should I really do that?
@@ -1322,12 +1413,13 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     }
   }
 
+  // (Re-)Lays out all objects.
   def layoutObjects() {
-    val g = getGraphics()
     useUserObjectLayout(objects.values.toSet, getGraphics())
     repaint()
   }
 
+  // Starts a new block.
   def startUnordered() = startBlock(UnorderedTrace(makeMemory().clone, ListBuffer.empty))
   def startSnapshot() = startBlock(SnapshotTrace)
   def startConditional() = startBlock(ConditionalTrace(None, ListBuffer.empty))
@@ -1336,12 +1428,14 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     addBlock(curBlock)
     gui.addEdit(new StartBlockEdit(curBlock))
   }
+  // Adds the given block to the current mode.
   private def addBlock(curBlock: TraceBlock) {
     val curMode = mode.asInstanceOf[StmtTrace]
     curMode.curBlocks ::= curBlock
     setGuiCurrentStmts(curMode)
   }
 
+  // Ends the current block.
   def finishBlock() {
     val block = removeBlock()
     gui.addEdit(new FinishBlockEdit(block))
@@ -1350,6 +1444,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
       case _ =>  // Do nothing
     }
   }
+  // Removes and returns the current block.
   private def removeBlock(): TraceBlock = {
     val curMode = mode.asInstanceOf[StmtTrace]
     val block = (curMode.curBlocks: @unchecked) match {
@@ -1362,6 +1457,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     block
   }
 
+  // Ends the current loop iteration and asks the synthesizer to generated code for it.
   def finishIteration() {
     val curMode = mode.asInstanceOf[StmtTrace]
     val (curBlock, restBlocks) = (curMode.curBlocks: @unchecked) match {
@@ -1391,6 +1487,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
       })
   }
 
+  // Shows the user the given memory diff.
   def showMemoryDiff(newMemory: Memory, exprValue: Option[Primitive]) {
     val (newVars, modObjs, modArrs) = pbd.lang.ASTUtils.diffMemories(makeMemory(), newMemory)
     def addDiffArrow(a: Arrow, p: Pointer, pointerOwnsArrow: Boolean) {
@@ -1433,6 +1530,8 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     exprValue foreach { p => newDiffShapes += makePrim(p, Nil)(getGraphics()) }
     repaint()
   }
+
+  // Hides the current memory diff by removing all newly-added shapes and arrows.
   def hideMemoryDiff() {
     diffShapes.clear()
     diffOriginalVals.foreach{ _() }
@@ -1446,14 +1545,15 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     repaint()
   }
 
-  // In this mode, called after ending a new conditional branch, we get actions from the user, and after each check to see if we have <= 1 legal join point.
+  // After ending a new conditional branch, gets actions from the user, and after each check to see if we have <= 1 legal join point.
   def startJoinGuessMode(memory: Memory, joinFinder: List[Action] => Option[List[Stmt]]) {
     startStmtTraceMode(memory)
     val curMode = StmtTrace(ListBuffer.empty, Nil, Map.empty, Set.empty, memory.clone, Some((joinFinder)), Set.empty)
     mode = curMode
-    findJoin(curMode)  // We might alreayd know where the join point must be.
+    findJoin(curMode)  // We might already know where the join point must be.
   }
 
+  // Tries to see if we can find a unique join point, and use it if we can.
   private def findJoin(mode: StmtTrace) {
     val actions = getTraceModeActions(mode, false)
     mode.joinFinder.get(actions) match {
@@ -1462,9 +1562,11 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     }
   }
 
+  // Checks what mode we're in.
   def isObserverMode(): Boolean = mode == Observer
   def isQueryMode(): Boolean = mode.isInstanceOf[QueryMode]
 
+  // Classes that define the types of undos we allow.
   // TODO/FIXME: Add more types of undos.  I currently don't allow undoing end iteration; should I?  Can I easily allow undo moving?  If so, I can probably remove the boolean from updateDisplay that blocks re-layout on undo/redo.
   private class ActionDoneEdit(action: Action, oldMem: Memory, newMem: Memory) extends javax.swing.undo.AbstractUndoableEdit {
     private lazy val name = printer.stringOfAction(action)
@@ -1504,6 +1606,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     override def redo() = removeBlock()
   }
 
+  // Clears the gui.
   def clear() {
     clearShapes()
     held = NoHeld
@@ -1515,6 +1618,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     hideMemoryDiff()
   }
 
+  // Removes all shapes from the gui.
   private def clearShapes() {
     variables.clear
     objects.clear
@@ -1531,11 +1635,13 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 
 private object Canvas {
 
+  // Colors for displaying shapes and arrows.
   val POSSIBILITY_COLOR = Color.GREEN
   val RECEIVER_COLOR = Color.RED
   val SHADOW_COLOR = Color.ORANGE//new Color(255, 220, 0)  // Dark yellow (the default is too hard to see).
   val OLD_DIFF_COLOR = Color.RED
   val NEW_DIFF_COLOR = Color.BLUE
+  // How far below the mouse we should display the tooltip.
   val TOOLTIP_VOFFSET = 15
 
 }
