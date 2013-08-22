@@ -161,7 +161,7 @@ protected[pbd] class PrettyPrinter(helpers: PartialFunction[String, Value => Str
   // TODO: I should probably handle all binary ops the way I handle conditionals.
   private def prettyStringOfPossibilities(ss: List[Stmt]): String = ss.head match {
     case _: Assign => prettyString(ss.collect{ case Assign(l, _) => l }) + " := " + prettyString(ss.collect{ case Assign(_, r) => r })
-    case c: Comparison => prettyString(ss.collect{ case c: Comparison => c.lhs }) + ("{" + iterableToString(ss.collect{ case c: Comparison => c }.map(getComparisonSeparator).toSet.map{ (s: String) => s.trim }, ",") + "}") + prettyString(ss.collect{ case c: Comparison => c.rhs })
+    case c: Comparison => prettyString(ss.collect{ case c: Comparison => c.lhs }) + " " + prettySeparator(ss.collect{ case c: Comparison => c }.map(getComparisonSeparator).toSet.map{ (s: String) => s.trim }) + " " + prettyString(ss.collect{ case c: Comparison => c.rhs })
     case Call(n1, a1) if ss.tail.forall{ case Call(n2, a2) => n1 == n2 && a1.size == a2.size case _ => false } => n1 + "(" + iterableToString(ss.collect{ case Call(_, a) => a }.transpose, ", ", (as: List[Expr]) => prettyString(as)) + ")"
     case _ => prettyString(ss)
   }
@@ -176,6 +176,12 @@ protected[pbd] class PrettyPrinter(helpers: PartialFunction[String, Value => Str
     //"{" + iterableToString(uniques, ", ", (s: Stmt) => stringOfStmt(s)) + "}"
     //uniques.size + " possibilities"
   }
+
+  private def prettySeparator(seps: Set[String]): String = 
+    if (seps.size == 1)
+      seps.head
+    else
+      ("{" + iterableToString(seps, ",") + "}")
 
 }
 
