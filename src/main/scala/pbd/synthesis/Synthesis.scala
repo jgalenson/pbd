@@ -1235,7 +1235,9 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	      //println(shortPrinter.stringOfStmt(h) + "  -->  " + shortPrinter.stringOfStmt(result))
 	      curHolesSeen += h
 	      result
-	    case _: Unseen => AbortOnUnknown  // Stop searching when we hit an unseen statement.
+	    case _: Unseen => 
+	      //println("AbortOnUnknown")
+	      AbortOnUnknown  // Stop searching when we hit an unseen statement.
 	    case _: EvidenceHole => throw new IllegalArgumentException(hole.toString)
 	  }
 	}
@@ -1243,9 +1245,12 @@ class Synthesis(private val controller: Controller, name: String, typ: Type, pri
 	  override def doLoopBody(memory: Memory, l: Loop): Value = {  // Do a simple check for a loop with no changes to memory and do a fast timeout if we're in one.
 	    val initMem = memory.clone
 	    val v = super.doLoopBody(memory, l)
-	    if (memoriesAreEqual(memory, initMem))
+	    if (isErrorOrFailure(v))  // Checking for an error trumps checking for the same memory.
+	      v
+	    else if (memoriesAreEqual(memory, initMem)) {
+	      //println("Fast timeout")
 	      TimeoutValue
-	    else
+	    } else
 	      v
 	  }
 	}
