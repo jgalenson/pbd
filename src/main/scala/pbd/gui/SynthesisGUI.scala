@@ -264,10 +264,10 @@ class SynthesisGUI private (private val controller: Controller, private val help
   /**
    * Synthesizes a loop given its first iteration and then walks through it.
    */
-  protected[gui] def synthesizeLoop(initialMemory: Memory, loop: Iterate, loops: TMap[Iterate, Loop], curMemory: Memory): LoopFinalInfo = {
+  protected[gui] def synthesizeLoop(initialMemory: Memory, loop: Iterate, loops: TMap[Iterate, Loop], curMemory: Memory, actionsToPoint: List[Stmt], numBlocksToMark: Int): LoopFinalInfo = {
     depth += 1
     controls.discardAllEdits()  // TODO: I probably shouldn't call this off the Swing thread like this.
-    val result = controller.synthesizeLoop(initialMemory, loop, loops, curMemory)
+    val result = controller.synthesizeLoop(initialMemory, loop, loops, curMemory, actionsToPoint, numBlocksToMark)
     depth -= 1
     result
   }

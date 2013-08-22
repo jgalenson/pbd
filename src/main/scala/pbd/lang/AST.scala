@@ -76,6 +76,7 @@ object AST {
   case class Minus(lhs: Expr, rhs: Expr) extends Arithmetic
   case class Times(lhs: Expr, rhs: Expr) extends Arithmetic
   case class Div(lhs: Expr, rhs: Expr) extends Arithmetic
+  case class Marker() extends Expr
 
   /* The action hierarchy. */
 

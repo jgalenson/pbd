@@ -7,6 +7,9 @@ x := x.right;
 :end;
 :end
 
+x := x.left;
+:end
+
 z.parent := y;
 :conditional y = null;
 :conditional z.value < y.value;

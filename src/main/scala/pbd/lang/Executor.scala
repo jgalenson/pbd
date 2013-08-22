@@ -213,6 +213,7 @@ class Executor(private val functions: Map[String, Program], private val printer:
       case h: Hole => exec(memory, holeHandler(memory, h))
       case l: TLiteralExpr[_] => eval(memory, l.l)
       case v: Value => getValueFromMemory(v, memory)  // Use the value from the current memory, as this one could be from an old memory.
+      case _: Marker => UnitConstant
       case Var(n) =>
         if (!memory.contains(n))
           throw new ExecuteError(e, "Variable does not exist.")

@@ -75,6 +75,7 @@ protected[pbd] class Printer(helpers: PartialFunction[String, Value => String], 
       case Times(lhs, rhs) => stringOfOperand(lhs) + " * " + stringOfOperand(rhs)
       case Div(lhs, rhs) => stringOfOperand(lhs) + " / " + stringOfOperand(rhs)
       case LiteralExpr(e) => "LiteralExpr(" + stringOfExpr(e) + ")"
+      case Marker() => "Marker"
     }
   }
 
@@ -220,6 +221,7 @@ protected[pbd] class Typer(functions: Map[String, Program], objectTypes: Map[Str
     case c: Comparison => BooleanType
     case Not(_) => BooleanType
     case a: Arithmetic => IntType
+    case _: Marker => UnitType
     case s => throw new IllegalArgumentException("Cannot get the type of stmt " + s + " without memory.")
   }
 
@@ -438,6 +440,60 @@ object ASTUtils {
   }
 
   /**
+   * Updates the given code using the given partial functions.
+   * Be careful to not create new things unless we need them, since that breaks reference equality.
+   */
+  def getNewStmts(oldStmts: List[Stmt], newStmts: PartialFunction[Stmt, Stmt], newBlocks: PartialFunction[Stmt, List[Stmt]]): List[Stmt] = {
+    def getNewExpr(e: Expr): Expr = singleton(getNewStmt(e)).asInstanceOf[Expr]
+    def getNewStmts(s: List[Stmt]): List[Stmt] = {
+      val newStmts = s flatMap getNewStmt
+      if (s.size == newStmts.size && s.zip(newStmts).forall{ t => t._1 eq t._2 })
+	s
+      else
+	newStmts
+    }
+    def getNewStmt(s: Stmt): List[Stmt] = s match {
+      case _ if newStmts isDefinedAt s => getNewStmtImpl(newStmts(s))
+      case _ if newBlocks isDefinedAt s => getNewStmts(newBlocks(s))
+      case _ => getNewStmtImpl(s: Stmt)
+    }
+    def getNewStmtImpl(s: Stmt): List[Stmt] = s match {
+      case If(c, t, ei, e) =>
+	val newIf = If(getNewExpr(c), getNewStmts(t), ei.map{ b => (getNewExpr(b._1), getNewStmts(b._2)) }, getNewStmts(e))
+	if (newIf.condition.eq(c) && newIf.thenBranch.eq(t) && newIf.elseBranch.eq(e) && newIf.elseIfPaths.zip(ei).forall{ t => t._1._1.eq(t._2._1) && t._1._2.eq(t._2._2) })
+	  List(s)
+	else
+	  List(newIf)
+      case Loop(c, b) =>
+	val newLoop = Loop(singleton(getNewStmt(c)), getNewStmts(b))
+	if (newLoop.condition.eq(c) && newLoop.body.eq(b))
+	  List(s)
+	else
+	  List(newLoop)
+      case UnorderedStmts(stmts) =>
+	val newStmts = getNewStmts(stmts)
+	if (newStmts eq stmts)
+	  List(s)
+	else
+	  List(UnorderedStmts(newStmts))
+      case Conditional(c, b) =>
+	val newCond = Conditional(getNewExpr(c), getNewStmts(b).asInstanceOf[List[Action]])
+	if (newCond.condition.eq(c) && newCond.body.eq(b))
+	  List(s)
+	else
+	  List(newCond)
+      case Iterate(is) =>
+	val newIter = Iterate(is.map{ case (c, b) => (singleton(getNewStmt(c)).asInstanceOf[Action], getNewStmts(b).asInstanceOf[List[Action]]) })
+	if (newIter.iterations.zip(is).forall{ t => t._1 eq t._2 })
+	  List(s)
+	else
+	  List(newIter)
+      case _ => List(s)
+    }
+    getNewStmts(oldStmts)
+  }
+
+  /**
    * Builds a map that maps each statement to its parent, i.e., enclosing statement.
    */
   protected[pbd] def getParents(code: List[Stmt]): Map[Stmt, Option[Stmt]] = {
@@ -446,6 +502,8 @@ object ASTUtils {
 	case If(c, t, ei, e) => getParentsForStmts(e, Some(cur), getParentsForStmts(t, Some(cur), getParentsForStmt(c, Some(cur), acc)))  // Doesn't work with else ifs
 	case Loop(c, b) => getParentsForStmts(b, Some(cur), getParentsForStmt(c, Some(cur), acc))
 	case UnorderedStmts(s) => getParentsForStmts(s, Some(cur), acc)
+	case Conditional(c, b) => getParentsForStmts(b, Some(cur), getParentsForStmt(c, Some(cur), acc))
+	case Iterate(is) => is.foldLeft(acc){ case (acc, (c, b)) => b.foldLeft(getParentsForStmt(c, Some(cur), acc)){ (acc, s) => getParentsForStmt(s, Some(cur), acc) } }
 	case _ => acc
       }) + (cur -> parent)
       code.foldLeft(acc){ (acc, cur) => getParentsForStmt(cur, parent, acc) }

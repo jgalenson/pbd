@@ -1,7 +1,7 @@
 package pbd
 
 import synthesis.Synthesis
-import lang.AST.{ Action, Program, Trace, Value, Stmt, Type, Object, Iterate, Loop, Expr, Primitive }
+import lang.AST.{ Action, Program, Trace, Value, Stmt, Type, Object, Iterate, Loop, Expr, Primitive, UnseenStmt }
 import lang.Memory
 import gui.SynthesisGUI._
 import scala.concurrent.SyncVar
@@ -101,7 +101,7 @@ protected[pbd] class Controller(private val synthesisCreator: Controller => Synt
    */
   def insertConditionalAtPoint(): ConditionalInfo = {
     import pbd.lang.{ Executor, Printer }
-    import pbd.lang.AST.{ If, UnseenExpr, UnseenStmt, UnknownJoinIf, BooleanConstant }
+    import pbd.lang.AST.{ If, UnseenExpr, UnknownJoinIf, BooleanConstant }
     import pbd.lang.ASTUtils.{ addBlock, getOwningStmt }
     val (initMem, code, initStmt) = lastState.get
     val realInitStmt = initStmt map { initStmt => getOwningStmt(code, initStmt) }
@@ -144,7 +144,7 @@ protected[pbd] class Controller(private val synthesisCreator: Controller => Synt
    */
   def insertConditionalAtPoint(code: List[Stmt], uif: pbd.lang.AST.UnknownJoinIf, followers: List[Stmt]): JoinInfo = {
     import pbd.lang.{ Executor, Printer }
-    import pbd.lang.AST.{ If, UnseenExpr, UnseenStmt, PossibilitiesHole, UnknownJoinIf, Not }
+    import pbd.lang.AST.{ If, PossibilitiesHole, UnknownJoinIf, Not }
     import pbd.lang.ASTUtils.{ addBlock, getOwningStmt }
     import pbd.lang.Executor.simpleHoleHandler
     val (initMem, uifCode, initStmt) = lastState.get  // The code here has the UnknownJoinIf in it, so we use the user-given one without it.
@@ -188,14 +188,35 @@ protected[pbd] class Controller(private val synthesisCreator: Controller => Synt
 
   /**
    * Synthesizes a loop given its first iteration and then walks through it.
-   * TODO/FIXME: I should do pruning here after genProgramAndFillHoles but before executeWithHelpFromUser.  That might reduce the num of questions I ask for later iterations.  But for that, I need to have access to the entire program up to this point.  Canvas' Tracer has the current unseen part, but I don't have everything before it.  Once I modify executeWithHelpFromUser to keep the whole program, I can have that.  Note that I can also add pruning to places inside executeWithHelpFromUser, perhaps after I get an unseen statement.
+   * ActionsToPoint is all the actions that from initialMemory to the end of
+   * the first iteration of this loop with a marker marking the current location.
    */
-  def synthesizeLoop(initialMemory: Memory, firstIteration: Iterate, loops: TMap[Iterate, Loop], curMemory: Memory): LoopFinalInfo = {
-    val stmts = synthesizer.genProgramAndFillHoles(initialMemory, List(firstIteration), true, loops)
+  def synthesizeLoop(initialMemory: Memory, firstIteration: Iterate, loops: TMap[Iterate, Loop], curMemory: Memory, actionsToPoint: List[Stmt], numBlocksToMark: Int): LoopFinalInfo = {
+    import pbd.lang.AST.Marker
+    import pbd.lang.ASTUtils.{ getNewStmts, getParents }
+    // Synthesize and prune code for the loop.
+    val codeToPoint = synthesizer.genProgramAndFillHoles(initialMemory, actionsToPoint.asInstanceOf[List[Action]], true, loops)
+    val marker = Marker()
+    val codeToPointWithUnseens = {  // Adds unseens where necessary for pruning.
+      val parents = getParents(codeToPoint)
+      val blocksToMark = scala.collection.mutable.Set.empty[Stmt]
+      def getMarkerParents(s: Stmt, numBlocksToMark: Int) {
+	if (numBlocksToMark > 0) {
+	  val parent = parents(s).get
+	  blocksToMark += parent
+	  getMarkerParents(parent, numBlocksToMark - 1)
+	}
+      }
+      getMarkerParents(marker, numBlocksToMark)
+      getNewStmts(codeToPoint, Map.empty, (s: Stmt) => s match { case s if blocksToMark.contains(s) => blocksToMark -= s; List(s, UnseenStmt()) })
+    }
+    val prunedCodeToPointWithUnseens = synthesizer.prunePossibilities(codeToPointWithUnseens, false)
+    val curLoop = getParents(prunedCodeToPointWithUnseens)(marker) match { case Some(Loop(c, b)) if b.last == marker => Loop(c, b.dropRight(1)) case s => throw new RuntimeException(s.toString) }  // Get the newly-pruned loop.
+    // Continue executing further iterations of the loop if necessary.
     firstIteration match {
-      case Iterate(List((_, Nil))) => LoopInfo((curMemory, firstIteration, singleton(stmts).asInstanceOf[Loop]))  // If the first iteration is empty, do not execute the loop.
+      case Iterate(List((_, Nil))) => LoopInfo((curMemory, firstIteration, curLoop.asInstanceOf[Loop]))  // If the first iteration is empty, do not execute the loop.
       case _ =>
-	val (allIterations, loop, finalMem) = ((firstIteration, synthesizer.executeLoopWithHelpFromUser(curMemory, stmts, false)): @unchecked) match {
+	val (allIterations, loop, finalMem) = ((firstIteration, synthesizer.executeLoopWithHelpFromUser(curMemory, curLoop, false)): @unchecked) match {
 	  case (Iterate(i1 :: Nil), StmtInfo((Iterate(irest) :: Nil, (l: Loop) :: Nil, m))) => (Iterate(i1 :: irest), l, m)
 	  case (_, e: EndTrace) => return e
 	}

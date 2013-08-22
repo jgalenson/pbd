@@ -17,7 +17,7 @@ import scala.collection.{ Map => TMap }
  */
 protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFunctions: IMap[String, Program], private val objectTypes: IMap[String, List[(String, Type)]], private val objectComparators: IMap[String, (Value, Value) => Int], private val fieldLayouts: IMap[String, List[List[String]]], private val objectLayouts: IMap[String, ObjectLayout]) extends JPanel {
 
-  import pbd.lang.AST.{ Action, ArrayValue, IntConstant, Null, Object, Primitive, Value, Assign, Var => ASTVar, Call, HeapValue, Expr, Stmt, Iterate, Loop, BooleanConstant, UnorderedStmts }
+  import pbd.lang.AST.{ Action, ArrayValue, IntConstant, Null, Object, Primitive, Value, Assign, Var => ASTVar, Call, HeapValue, Expr, Stmt, Iterate, Loop, BooleanConstant, UnorderedStmts, UnseenStmt, UnseenExpr }
   import pbd.lang.{ Printer, Executor, Typer, Memory }
   import java.awt.event.{ MouseAdapter, MouseEvent, MouseMotionAdapter, MouseWheelListener, MouseWheelEvent, KeyAdapter, KeyEvent }
   import scala.annotation.tailrec
@@ -75,7 +75,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
   private case class SelectQuery(possibilitiesSet: ISet[Shape], possibilitiesMap: IMap[Shape, List[Action]], newShapes: ISet[Shape]) extends QueryMode
   private case class AssignQuery(possibilities: IMap[Shape, IMap[Shape, List[Action]]], lefts: ISet[Shape], rights: ISet[Shape], rightMap: IMap[Shape, ISet[Shape]], newShapes: ISet[Shape], newArrows: IMap[Arrow, (Shape, ISet[Shape])]) extends QueryMode
   private abstract class Trace extends InteractionMode { val newShapes: Set[Shape]; val literalShapes: Set[Shape] }  // In trace mode we're getting expr/stmt(s) from the user.
-  private case class StmtTrace(actions: ListBuffer[Action], var curBlocks: List[TraceBlock], loops: Map[Iterate, Loop], newShapes: Set[Shape], var initMem: Memory, joinFinder: Option[(List[Action] => Option[List[Stmt]])], literalShapes: Set[Shape]) extends Trace  // curBlocks has inner blocks at the beginning, initMem is  clone of memory after finishing the previous statement.
+  private case class StmtTrace(actions: ListBuffer[Action], var curBlocks: List[TraceBlock], loops: Map[Iterate, Loop], newShapes: Set[Shape], var prevMem: Memory, joinFinder: Option[(List[Action] => Option[List[Stmt]])], literalShapes: Set[Shape], initialMemory: Memory) extends Trace  // curBlocks has inner blocks at the beginning, prevMem is  clone of memory after finishing the previous statement.
   private case class ExprTrace(newShapes: Set[Shape], literalShapes: Set[Shape]) extends Trace  // Currently only for boolean expressions: see comment in doExpr.  This would be easy to change if necessary (probably just add type as ivar).
   private abstract class TraceBlock
   private case class UnorderedTrace(startMem: Memory, s: ListBuffer[Action]) extends TraceBlock
@@ -517,12 +517,12 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
       case (mode: StmtTrace, a: Action) =>
 	val oldMem = mode.curBlocks match {
 	  case UnorderedTrace(startMem, _) :: _ => startMem.clone
-	  case _ => mode.initMem
+	  case _ => mode.prevMem
 	}
 	addActionToTraceBlock(a, mode)
 	setGuiCurrentStmts(mode)
-	mode.initMem = makeMemory().clone
-	gui.addEdit(new ActionDoneEdit(a, oldMem, mode.initMem))
+	mode.prevMem = makeMemory().clone
+	gui.addEdit(new ActionDoneEdit(a, oldMem, mode.prevMem))
 	if (mode.joinFinder.isDefined)
 	  findJoin(mode)
 	mode.curBlocks match {  // Restore the initial memory if this is an unordered statement, as the next statement should act in parallel with this one.
@@ -609,25 +609,25 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     }
   }
 
-  // Generates the AST Action from the given block.  If extraAction is defined, use it as the last action in this block.
-  private def blockToAction(block: TraceBlock, extraAction: Option[Action]): Action = {
-    import pbd.lang.AST.{ Snapshot, Conditional, UnseenExpr, UnseenStmt }
+  // Generates the AST Action from the given block.  Uses extraActions (which can be empty) as the last action in this block.
+  private def blockToAction(block: TraceBlock, extraActions: List[Action]): Action = {
+    import pbd.lang.AST.{ Snapshot, Conditional }
     block match {
-      case UnorderedTrace(_, s) => UnorderedStmts(s.toList ++ extraAction.toList)
+      case UnorderedTrace(_, s) => UnorderedStmts(s.toList ++ extraActions)
       case SnapshotTrace => Snapshot(makeMemory())
-      case ConditionalTrace(None, b) => assert(b.isEmpty); assert(extraAction.isDefined && extraAction.get.isInstanceOf[UnseenExpr]); Conditional(extraAction.get.asInstanceOf[Expr], List(UnseenStmt()))
-      case ConditionalTrace(Some(s), b) => Conditional(s, b.toList ++ extraAction.toList)
-      case LoopTrace(None, b, _) => assert(b.isEmpty); assert(extraAction.isDefined && extraAction.get.isInstanceOf[UnseenExpr]); Iterate(List((extraAction.get, List(UnseenStmt()))))
-      case LoopTrace(Some(s), b, _) => Iterate(List((s, b.toList ++ extraAction.toList)))
+      case ConditionalTrace(None, b) => assert(b.isEmpty); assert(extraActions.size == 1 && extraActions.head.isInstanceOf[UnseenExpr]); Conditional(extraActions.head.asInstanceOf[Expr], List(UnseenStmt()))
+      case ConditionalTrace(Some(s), b) => Conditional(s, b.toList ++ extraActions)
+      case LoopTrace(None, b, _) => assert(b.isEmpty); assert(extraActions.size == 1 && extraActions.head.isInstanceOf[UnseenExpr]); Iterate(List((extraActions.head, List(UnseenStmt()))))
+      case LoopTrace(Some(s), b, _) => Iterate(List((s, b.toList ++ extraActions)))
     }
   }
 
   // Gets the actions that are in the current block.
   // If markCurStmt is true, we put an UnseenExpr as the current/final statement.
-  private def getTraceModeActions(mode: StmtTrace, markCurStmt: Boolean): List[Action] = mode.actions.toList ++ mode.curBlocks.foldLeft(if (markCurStmt) Some(pbd.lang.AST.UnseenExpr(): Action) else None){ (acc, cur) => Some(blockToAction(cur, acc)) }.toList
+  private def getTraceModeActions(mode: StmtTrace, curStmtMarker: Option[Action]): List[Action] = mode.actions.toList ++ mode.curBlocks.foldLeft(curStmtMarker.toList){ (acc, cur) => List(blockToAction(cur, acc)) }
 
   // Displays the current actions in the code pane.
-  private def setGuiCurrentStmts(mode: StmtTrace) = gui.setCurrentStmts(getTraceModeActions(mode, true))
+  private def setGuiCurrentStmts(mode: StmtTrace) = gui.setCurrentStmts(getTraceModeActions(mode, Some(UnseenExpr())))
 
   // Paints all the shapes.
   override def paintComponent(g: Graphics) {
@@ -1258,7 +1258,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
 
   // Lets the user enter a trace of statements.
   def startStmtTraceMode(memory: Memory) {
-    mode = StmtTrace(ListBuffer.empty, Nil, Map.empty, Set.empty, memory.clone, None, Set.empty)
+    mode = StmtTrace(ListBuffer.empty, Nil, Map.empty, Set.empty, memory.clone, None, Set.empty, memory.clone)
     gui.setStatusBarText("Please give a trace.")
     addMouseMotionListener(callHoverListener)
   }
@@ -1273,7 +1273,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
   // Returns the statements the user demonstrated to the synthesizer.
   def finishStmtTraceMode(): (List[Action], TMap[Iterate, Loop], Memory) = {
     val curMode = mode.asInstanceOf[StmtTrace]
-    val actions = getTraceModeActions(curMode, false)
+    val actions = getTraceModeActions(curMode, None)
     finishTraceMode()
     (actions, curMode.loops, makeMemory())
   }
@@ -1450,7 +1450,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     val block = (curMode.curBlocks: @unchecked) match {
       case curBlock :: rest =>
 	curMode.curBlocks = rest
-	addActionToTraceBlock(blockToAction(curBlock, None), curMode)
+	addActionToTraceBlock(blockToAction(curBlock, Nil), curMode)
 	curBlock
     }
     setGuiCurrentStmts(curMode)
@@ -1465,18 +1465,21 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     }
     val curCode = gui.getCode()
     mode = Observer
+    val curIterate = blockToAction(curBlock, Nil).asInstanceOf[Iterate]
+    val actionsToPoint = pbd.lang.ASTUtils.getNewStmts(getTraceModeActions(curMode, Some(pbd.lang.AST.Marker())), Map.empty, Map.empty)  // All the actions in this trace to the current point, which is marked.
+    val numBlocksToMark = curMode.curBlocks.size
     gui.hideTraceControls()
     // TODO/FIXME: Add the ability to do LiteralExpr/Stmt.  By default it's off, but it should be selectable.
     // TODO/FIXME: Investigate why we ask so many more queries (GuiTest selectionSort vs. Test selectionSortSwap).  Part is that we don't give as much (Test gives the second full iteration and the third condition).  We also don't do initial pruning before the second trace.  Is there more to it?  Can we regain some of this?  selectionSortSwap in Test takes about 6 queries.  GuiTest with same array asks, on the first trace, 5 in the inner loop, 5 on outer loop, then 9 afterwards.  Part of this is due to the fact that we get fewer details after the first iteration: Test will give i<a.length form every iteration, GuiTest will give it for the first iteration but true/false after that, which has less information.
     invokeOffSwingThread[LoopFinalInfo, Unit]({
-      gui.synthesizeLoop(curBlock.initialMemory, blockToAction(curBlock, None).asInstanceOf[Iterate], curMode.loops, makeMemory())  //  We need the memory before executing any actions in the loop.
+      gui.synthesizeLoop(curMode.initialMemory, curIterate, curMode.loops, makeMemory(), actionsToPoint, numBlocksToMark)  //  We need the memory before executing any actions in the loop.
     }, _ match {
       case LoopInfo((finalMem, iterate, loop)) =>
 	mode = curMode
 	curMode.curBlocks = restBlocks
 	curMode.loops += iterate -> loop
 	addActionToTraceBlock(iterate, curMode)
-	gui.setCode(curCode._1, curCode._2, Some(getTraceModeActions(curMode, true)))
+	gui.setCode(curCode._1, curCode._2, Some(getTraceModeActions(curMode, Some(UnseenExpr()))))
 	gui.showTraceControls()
 	// Update memory with the results from later iterations of the loop and repaint to see it on the screen.
 	updateDisplayWithMemory(getGraphics().asInstanceOf[Graphics2D], finalMem, true)
@@ -1548,14 +1551,14 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
   // After ending a new conditional branch, gets actions from the user, and after each check to see if we have <= 1 legal join point.
   def startJoinGuessMode(memory: Memory, joinFinder: List[Action] => Option[List[Stmt]]) {
     startStmtTraceMode(memory)
-    val curMode = StmtTrace(ListBuffer.empty, Nil, Map.empty, Set.empty, memory.clone, Some((joinFinder)), Set.empty)
+    val curMode = StmtTrace(ListBuffer.empty, Nil, Map.empty, Set.empty, memory.clone, Some((joinFinder)), Set.empty, memory.clone)
     mode = curMode
     findJoin(curMode)  // We might already know where the join point must be.
   }
 
   // Tries to see if we can find a unique join point, and use it if we can.
   private def findJoin(mode: StmtTrace) {
-    val actions = getTraceModeActions(mode, false)
+    val actions = getTraceModeActions(mode, None)
     mode.joinFinder.get(actions) match {
       case Some(newCode) => gui.finishFixing(newCode)
       case _ =>
@@ -1575,7 +1578,7 @@ protected[gui] class Canvas(private val gui: SynthesisGUI, private val helperFun
     override def getPresentationName(): String = name
     private def undoOrRedo(m: Memory, f: StmtTrace => Unit) {
       val curMode = mode.asInstanceOf[StmtTrace]
-      curMode.initMem = m
+      curMode.prevMem = m
       updateDisplayWithMemory(getGraphics().asInstanceOf[Graphics2D], m, false)
       f(curMode)
       setGuiCurrentStmts(curMode)

@@ -73,7 +73,7 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
 	    makeCalls(p.name, actualsPossibilities)
 	  }}
 	  val extras = nextLevel.flatMap{ e => cachingExecutor.evaluate(memory, e) match {
-	    case IntConstant(n) if targetType == IntType || depth < maxDepth => List(Plus(e, IntConstant(1)), Minus(e, IntConstant(1)), Times(e, IntConstant(2)), Div(e, IntConstant(2)))
+	    case IntConstant(n) if targetType == IntType || depth < maxDepth => List(Plus(e, IntConstant(1)), Minus(e, IntConstant(1))/*, Times(e, IntConstant(2)), Div(e, IntConstant(2))*/)
 	    case IntConstant(n) if targetType == BooleanType || depth < maxDepth => List(LT(e, IntConstant(0)), GT(e, IntConstant(0)))
 	    case ArrayValue(_, a, _) if (depth < maxDepth || targetType == IntType) && !e.isInstanceOf[Range] => List(ArrayLength(e))
 	    case Object(_, _, f) => f filter { f => depth < maxDepth || canBeSameType(typer.typeOfValue(f._2), targetType) } map { s => FieldAccess(e, s._1) }
@@ -98,7 +98,7 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
 	    val equivs = combineEquivalences()  // We have to expand equivalences here.  E.g., we might have x=y and foo(x) crashes, but in memory x!=y so we must remove foo(x) and foo(y).
 	    val fullCrashers = crashers.flatMap{ crashingExpr => expandEquivalences(List(crashingExpr), equivs) }.toSet
 	    def containsCrasher(expr: Expr): Boolean = fullCrashers.contains(expr) || { expr match {
-	      case _: Value | Var(_) | ObjectID(_) | ArrayID(_) => false
+	      case _: Value | Var(_) | ObjectID(_) | ArrayID(_) | _: Marker => false
 	      case ArrayAccess(a, i) => containsCrasher(a) || containsCrasher(i)
 	      case FieldAccess(o, _) => containsCrasher(o)
 	      case ArrayLength(e) => containsCrasher(e)
@@ -218,7 +218,7 @@ protected[synthesis] class CodeGenerator(private val functions: IMap[String, Pro
 	case _ => false
       }
       { e match {
-	case _: Value | Var(_) | ObjectID(_) | ArrayID(_) => 0
+	case _: Value | Var(_) | ObjectID(_) | ArrayID(_) | _: Marker => 0
 	case ArrayAccess(a, i) => max2(a, i) + 1
 	case FieldAccess(o, _) => getDepth(o) + 1
 	case ArrayLength(e) => getDepth(e) + 1
