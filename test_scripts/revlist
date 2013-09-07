@@ -1,0 +1,12 @@
+cur := list;
+prev := null;
+:loop cur != null;
+:unordered;
+cur.next := prev;
+cur := cur.next;
+prev := cur;
+:end;
+:end;
+
+prev;
+:end;

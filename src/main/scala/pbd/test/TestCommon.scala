@@ -27,6 +27,15 @@ protected[test] object TestCommon {
 
   def mapOfPrograms(programs: Program*): Map[String, Program] = programs.map{ p => (p.name, p) }.toMap
 
+  class ListMaker {
+    private var id = 1
+    private def getID(): Int = { val n = id; id += 1; n }
+    def makeList(max: Int, cur: Int = 1): Value = cur match {
+      case n if n > max => Null
+      case n => Object(getID(), "Node", scala.collection.mutable.Map.empty[String, Value] ++ List(("value" -> IntConstant(cur)), ("next" -> makeList(max, cur + 1))))
+    }
+  }
+
   val listTypes = Map.empty + ("Node" -> List(("value", IntType), ("next", ObjectType("Node"))))
   val btreeTypes = Map.empty ++ List(("Node" -> List(("value", IntType), ("left", ObjectType("Node")), ("right", ObjectType("Node")), ("parent", ObjectType("Node")))), ("Tree" -> List(("root", ObjectType("Node")))))
   val rbtreeTypes = Map.empty ++ List(("Node" -> List(("value", IntType), ("color", StringType), ("left", ObjectType("Node")), ("right", ObjectType("Node")), ("parent", ObjectType("Node")))), ("Tree" -> List(("root", ObjectType("Node")))), ("Color" -> List(("color", IntType))))
@@ -157,6 +166,21 @@ protected[test] object TestCommon {
   def intArrayIsSorted(arrName: String)(args: Map[String, Value], resMap: Map[String, Value], rv: Value): Boolean = {
     val array = resMap(arrName).asInstanceOf[ArrayValue].array.map{ n => n.asInstanceOf[IntConstant].n }
     holdsOverIterable(array, (n1: Int, n2: Int) => n1 <= n2)
+  }
+
+  def listToList(list: Value): Option[List[Int]] = {
+    def toList(list: Value, seen: Set[Int]): Option[List[Int]] = list match {
+      case Null => Some(Nil)
+      case Object(id, _, fields) =>
+	if (seen contains id)
+	  None
+	else
+	  toList(fields("next"), seen + id) match {
+	    case Some(rest) => Some(fields("value").asInstanceOf[IntConstant].n :: rest)
+	    case None => None
+	  }
+    }
+    toList(list, Set.empty)
   }
 
   def treeToList(tree: Value): Option[List[Int]] = {

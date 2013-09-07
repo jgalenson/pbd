@@ -74,15 +74,9 @@ object GuiTest {
 
   def bigListTest(options: Options) {
     val controller = new Controller(makeSynthesizer("", UnitType, Nil, IMap.empty, IMap.empty, objectComparators = listComparator), IMap.empty, IMap.empty, listComparator, listFieldLayout, listLayout, options)
+    val listMaker = new ListMaker
 
-    var id = 1
-    def getID(): Int = { val n = id; id += 1; n }
-    def makeList(n: Int): Value = n match {
-      case 0 => Null
-      case n => Object(getID(), "Node", Map.empty[String, Value] ++ List(("value" -> IntConstant(n)), ("next" -> makeList(n - 1))))
-    }
-
-    val mem = new Memory(List(("l1" -> makeList(5)), ("l2" -> makeList(9)), ("l3" -> makeList(17))))
+    val mem = new Memory(List(("l1" -> listMaker.makeList(5)), ("l2" -> listMaker.makeList(9)), ("l3" -> listMaker.makeList(17))))
 
     controller.updateDisplay(mem, Nil, Some(Null))
   }

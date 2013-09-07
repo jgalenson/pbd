@@ -4,7 +4,7 @@ treeInsert(tree, x);
 x.color := red;
 :loop (x != tree.root) && (x.parent.color = red);
 isLeftCase := (x.parent.parent.left = x.parent);
-y := null;
+y := `null`;
 :conditional isLeftCase;
 y := x.parent.parent.right;
 :end;
