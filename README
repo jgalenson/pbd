@@ -1,12 +1,9 @@
 Building
 --------
 
-To build the project, simply run:
+To build the project, either use sbt (with Scala 2.10.3 or higher) or run:
 
 make slow
-
-Note that sbt will not build this project until https://issues.scala-lang.org/browse/SI-7455 is fixed,
-which should be Scala 2.10.3/2.11.
 
 Running
 -------
